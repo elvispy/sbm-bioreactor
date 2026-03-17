@@ -1,8 +1,13 @@
-function navier_stokes_weak_form(u, p, v, q, μ, ρ, f)
-    # The convective term (ρ * (u ⋅ ∇(u)) ⋅ v), the viscous term (μ * ∇(u) ⊙ ∇(v)),
-    # the pressure gradient (−p * (∇ ⋅ v)), the continuity equation (q * (∇ ⋅ u)),
-    # and the body force term (−f ⋅ v).
-    (ρ * (u ⋅ ∇(u)) ⋅ v) + (μ * ∇(u) ⊙ ∇(v)) - (p * (∇ ⋅ v)) + (q * (∇ ⋅ u)) - (f ⋅ v)
+function navier_stokes_weak_form(u, p, v, q, μ, ρ, f, u_drag=nothing, drag_coeff=0.0)
+    # Standard Navier-Stokes terms
+    res = (ρ * (u ⋅ ∇(u)) ⋅ v) + (μ * ∇(u) ⊙ ∇(v)) - (p * (∇ ⋅ v)) + (q * (∇ ⋅ u)) - (f ⋅ v)
+    
+    # Hele-Shaw Depth-Averaged Friction (B.6)
+    if u_drag !== nothing && drag_coeff > 0.0
+        res = res + (drag_coeff * (u - u_drag) ⋅ v)
+    end
+    
+    return res
 end
 
 function krieger_viscosity(Φ; μf=0.5889, Φmax=0.64)

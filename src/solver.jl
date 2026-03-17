@@ -1,19 +1,17 @@
 using Gridap
 using LineSearches: BackTracking
 
-function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1)
+function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
     u, p, Φ, C = x
     v, q, w, z = y
     
     # Time derivative term (BDF1 or BDF2)
     if order == 1
-        # BDF1 (Backward Euler)
         u_n, p_n, Φ_n, C_n = x_prevs[1]
         u_dot = (u - u_n) / dt
         Φ_dot = (Φ - Φ_n) / dt
         C_dot = (C - C_n) / dt
     else
-        # BDF2
         u_n, p_n, Φ_n, C_n = x_prevs[1]
         u_nn, p_nn, Φ_nn, C_nn = x_prevs[2]
         u_dot = (3.0*u - 4.0*u_n + u_nn) / (2.0*dt)
@@ -30,10 +28,14 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1)
     g = params.g
     Df = params.Df
     Φavg = params.Φavg
+    L = params.L
+    u_wall = params.u_wall
+    kc = params.kc
+    ke = params.ke
+    d0 = params.d0
     
     # Density and viscosity (Krieger-Dougherty)
     ρ = (1.0 - Φ) * ρf + Φ * ρs
-    
     visc_op(phi) = krieger_viscosity(phi; μf=μf, Φmax=Φmax)
     μ = visc_op ∘ Φ
     
@@ -41,18 +43,25 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1)
     dμ_dΦ_op(phi) = 2.5 * μf * (1.0 - phi/Φmax)^(-2.5*Φmax - 1.0)
     ∇μ = (dμ_dΦ_op ∘ Φ) * ∇(Φ)
     
-    # Navier Stokes weak form
-    res_ns = (ρ * u_dot ⋅ v) + navier_stokes_weak_form(u, p, v, q, μ, ρ, g)
+    # Navier Stokes weak form with Hele-Shaw drag (B.6)
+    drag_coeff = 4.0 * μf / (L^2)
+    res_ns = (ρ * u_dot ⋅ v) + navier_stokes_weak_form(u, p, v, q, μ, ρ, g, u_wall, drag_coeff)
     
     # The continuity equation is modified
     flux = particle_flux(u, Φ, ∇(Φ), μ, ∇μ, a, ρs, ρf, μf, Φavg, g)
     res_continuity_rhs = ∇(q) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))
     
-    # Cell Transport: ∂Φ/∂t + u⋅∇Φ = (ρs - ρf)/(ρs * ρf) ∇⋅Js
-    res_phi = (w * Φ_dot) + (w * (u ⋅ ∇(Φ))) + (∇(w) ⋅ (flux * ((ρs - ρf) / (ρs * ρf))))
+    # Cell Transport & Growth kinetics (B.7)
+    # ∂Φ/∂t = (π/6 * a^3) * ∂d/∂t
+    # ∂d/∂t = kc * C * d0 * exp(ke * t)
+    source_phi = (π/6.0 * a^3) * kc * C * d0 * exp(ke * t)
+    res_phi = (w * Φ_dot) + (w * (u ⋅ ∇(Φ))) + (∇(w) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))) - (w * source_phi)
     
     # Nutrient Transport: ∂C/∂t + u⋅∇C = Df ∇²C + rc
-    res_C = (z * C_dot) + (z * (u ⋅ ∇(C))) + (Df * ∇(z) ⊙ ∇(C))
+    # rc = -μc * d = -μc * (Φ / (π/6 * a^3))
+    # Note: paper uses μc for consumption, but also kc in growth. Assuming consistency.
+    rc = -kc * (Φ / (π/6.0 * a^3))
+    res_C = (z * C_dot) + (z * (u ⋅ ∇(C))) + (Df * ∇(z) ⊙ ∇(C)) - (z * rc)
     
     return res_ns + res_continuity_rhs + res_phi + res_C
 end
@@ -69,13 +78,14 @@ function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_inte
     xh = x_n
     
     for step in 1:nsteps
-        println("Step: $step")
+        t = step * dt
+        println("Step: $step, Time: $t")
         
         # Determine order
         order = step == 1 ? 1 : 2
         x_prevs = order == 1 ? (x_n,) : (x_n, x_nn)
         
-        res(x, y) = ∫( coupled_bioreactor_residual(x, x_prevs, y, dt, params, order) )dΩ
+        res(x, y) = ∫( coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t) )dΩ
         op = FEOperator(res, X, Y)
         
         xh, _ = solve!(xh, solver, op)

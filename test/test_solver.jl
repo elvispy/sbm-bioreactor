@@ -34,16 +34,22 @@ using SBM_Bioreactor
         ρf = 1050.0,
         g = VectorValue(0.0, -9.81),
         Df = 5.4e-10,
-        Φavg = 0.1
+        Φavg = 0.1,
+        L = 0.01,
+        u_wall = x -> VectorValue(0.0, 0.0),
+        kc = 1.0e-13,
+        ke = 4.2e-6,
+        d0 = 3.0e5
     )
     
     dt = 1.0
+    t = 0.0
     
     x = (uh, ph, Φh, Ch)
     x_prevs = (uh, ph, Φh, Ch)
     y = (uh, ph, Φh, Ch) # using functions from the space as test functions for simple evaluation
     
-    res = coupled_bioreactor_residual(x, (x_prevs,), y, dt, params, 1)
+    res = coupled_bioreactor_residual(x, (x_prevs,), y, dt, params, 1, t)
     
     degree = 2
     Ω = Triangulation(model)
