@@ -40,10 +40,10 @@ using SBM_Bioreactor
     dt = 1.0
     
     x = (uh, ph, Φh, Ch)
-    x_n = (uh, ph, Φh, Ch)
+    x_prevs = (uh, ph, Φh, Ch)
     y = (uh, ph, Φh, Ch) # using functions from the space as test functions for simple evaluation
     
-    res = coupled_bioreactor_residual(x, x_n, y, dt, params)
+    res = coupled_bioreactor_residual(x, (x_prevs,), y, dt, params, 1)
     
     degree = 2
     Ω = Triangulation(model)
@@ -52,4 +52,9 @@ using SBM_Bioreactor
     val = sum(∫(res)dΩ)
     
     @test typeof(val) == Float64
+    
+    # Test BDF2 call
+    res2 = coupled_bioreactor_residual(x, (x_prevs, x_prevs), y, dt, params, 2)
+    val2 = sum(∫(res2)dΩ)
+    @test typeof(val2) == Float64
 end

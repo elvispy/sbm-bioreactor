@@ -10,6 +10,7 @@ export krieger_viscosity
 export shear_rate
 export particle_flux
 export coupled_bioreactor_residual
+export run_bioreactor_simulation
 
 function run_simulation()
     println("Simulation started.")
