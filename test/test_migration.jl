@@ -48,8 +48,11 @@ using SBM_Bioreactor
     μf = 0.5889
     Φavg = 0.1
     g = VectorValue(0.0, -9.81)
+    
+    Γ_fun(x) = 1.0
+    Γh = interpolate_everywhere(Γ_fun, Q)
 
-    flux = particle_flux(uh, Φh, ∇(Φh), μh, ∇(μh), a, ρs, ρf, μf, Φavg, g)
+    flux = particle_flux(uh, Φh, ∇(Φh), μh, ∇(μh), a, ρs, ρf, μf, Φavg, g, Γh, ∇(Γh))
     
     # Integrate the flux over the domain to see it evaluates
     flux_int = sum(∫(flux)dΩ)

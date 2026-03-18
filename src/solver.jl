@@ -2,18 +2,18 @@ using Gridap
 using LineSearches: BackTracking
 
 function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
-    u, p, Φ, C = x
-    v, q, w, z = y
+    u, p, Φ, C, Γ = x
+    v, q, w, z, v_γ = y
     
     # Time derivative term (BDF1 or BDF2)
     if order == 1
-        u_n, p_n, Φ_n, C_n = x_prevs[1]
+        u_n, p_n, Φ_n, C_n, Γ_n = x_prevs[1]
         u_dot = (u - u_n) / dt
         Φ_dot = (Φ - Φ_n) / dt
         C_dot = (C - C_n) / dt
     else
-        u_n, p_n, Φ_n, C_n = x_prevs[1]
-        u_nn, p_nn, Φ_nn, C_nn = x_prevs[2]
+        u_n, p_n, Φ_n, C_n, Γ_n = x_prevs[1]
+        u_nn, p_nn, Φ_nn, C_nn, Γ_nn = x_prevs[2]
         u_dot = (3.0*u - 4.0*u_n + u_nn) / (2.0*dt)
         Φ_dot = (3.0*Φ - 4.0*Φ_n + Φ_nn) / (2.0*dt)
         C_dot = (3.0*C - 4.0*C_n + C_nn) / (2.0*dt)
@@ -43,32 +43,31 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
     dμ_dΦ_op(phi) = 2.5 * μf * (1.0 - phi/Φmax)^(-2.5*Φmax - 1.0)
     ∇μ = (dμ_dΦ_op ∘ Φ) * ∇(Φ)
     
+    # 5th variable: Shear Rate Projection (Smoothing)
+    res_gamma = v_γ * (Γ - shear_rate(u))
+
     # Navier Stokes weak form with Hele-Shaw drag (B.6)
     drag_coeff = 4.0 * μf / (L^2)
     res_ns = (ρ * u_dot ⋅ v) + navier_stokes_weak_form(u, p, v, q, μ, ρ, g, u_wall, drag_coeff)
     
     # The continuity equation is modified
-    flux = particle_flux(u, Φ, ∇(Φ), μ, ∇μ, a, ρs, ρf, μf, Φavg, g)
+    flux = particle_flux(u, Φ, ∇(Φ), μ, ∇μ, a, ρs, ρf, μf, Φavg, g, Γ, ∇(Γ))
     res_continuity_rhs = ∇(q) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))
     
     # Cell Transport & Growth kinetics (B.7)
-    # ∂Φ/∂t = (π/6 * a^3) * ∂d/∂t
-    # ∂d/∂t = kc * C * d0 * exp(ke * t)
     source_phi = (π/6.0 * a^3) * kc * C * d0 * exp(ke * t)
     res_phi = (w * Φ_dot) + (w * (u ⋅ ∇(Φ))) + (∇(w) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))) - (w * source_phi)
     
-    # Nutrient Transport: ∂C/∂t + u⋅∇C = Df ∇²C + rc
-    # rc = -μc * d = -μc * (Φ / (π/6 * a^3))
-    # Note: paper uses μc for consumption, but also kc in growth. Assuming consistency.
+    # Nutrient Transport
     rc = -kc * (Φ / (π/6.0 * a^3))
     res_C = (z * C_dot) + (z * (u ⋅ ∇(C))) + (Df * ∇(z) ⊙ ∇(C)) - (z * rc)
     
-    return res_ns + res_continuity_rhs + res_phi + res_C
+    return res_ns + res_continuity_rhs + res_phi + res_C + res_gamma
 end
 
 function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1)
     # Initial state
-    x_n = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0], X)
+    x_n = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], X)
     x_nn = x_n # For BDF2, first step uses BDF1
     
     # Newton Solver
@@ -95,7 +94,7 @@ function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_inte
         x_n = xh
         
         if step % write_vtk_interval == 0
-            writevtk(get_triangulation(dΩ), "results_$step", cellfields=["u"=>xh[1], "p"=>xh[2], "phi"=>xh[3], "C"=>xh[4]])
+            writevtk(get_triangulation(dΩ), "results_$step", cellfields=["u"=>xh[1], "p"=>xh[2], "phi"=>xh[3], "C"=>xh[4], "gamma"=>xh[5]])
         end
     end
     

@@ -15,6 +15,20 @@ using SBM_Bioreactor
     Φ_ex(x) = 0.2 * (1.0 + 0.5*sin(pi*x[1])*sin(pi*x[2]))
     C_ex(x) = 5.5 * (1.0 + 0.1*cos(pi*x[1])*cos(pi*x[2]))
     
+    # Gamma_ex is the magnitude of the symmetric gradient of u_ex
+    function Γ_ex(x)
+        du1_dx1 = pi*cos(pi*x[1])*cos(pi*x[2])
+        du1_dx2 = -pi*sin(pi*x[1])*sin(pi*x[2])
+        du2_dx1 = pi*sin(pi*x[1])*sin(pi*x[2])
+        du2_dx2 = -pi*cos(pi*x[1])*cos(pi*x[2])
+        
+        e11 = du1_dx1
+        e22 = du2_dx2
+        e12 = 0.5*(du1_dx2 + du2_dx1)
+        
+        return sqrt(2.0*(e11^2 + e22^2 + 2.0*e12^2) + 1e-10)
+    end
+    
     # 3. Parameters
     params = (
         μf = 0.5889,
@@ -41,21 +55,23 @@ using SBM_Bioreactor
     Q = TestFESpace(model, reffe_p, conformity=:H1, constraint=:zeromean)
     W = TestFESpace(model, reffe_s, conformity=:H1, dirichlet_tags="boundary")
     Z = TestFESpace(model, reffe_s, conformity=:H1, dirichlet_tags="boundary")
+    G = TestFESpace(model, reffe_s, conformity=:H1, dirichlet_tags="boundary")
     
     U = TrialFESpace(V, u_ex)
     P = TrialFESpace(Q)
     Φ_space = TrialFESpace(W, Φ_ex)
     C_space = TrialFESpace(Z, C_ex)
+    Γ_space = TrialFESpace(G, Γ_ex)
     
-    Y = MultiFieldFESpace([V, Q, W, Z])
-    X = MultiFieldFESpace([U, P, Φ_space, C_space])
+    Y = MultiFieldFESpace([V, Q, W, Z, G])
+    X = MultiFieldFESpace([U, P, Φ_space, C_space, Γ_space])
     
     degree = 4
     Ω = Triangulation(model)
     dΩ = Measure(Ω, degree)
     
-    # Derive exact solution interpolation
-    x_ex = interpolate_everywhere([u_ex, p_ex, Φ_ex, C_ex], X)
+    # 5. Derive Forcing Terms using Gridap AD
+    x_ex = interpolate_everywhere([u_ex, p_ex, Φ_ex, C_ex, Γ_ex], X)
     
     dt = 1.0
     t = 0.0
@@ -75,18 +91,20 @@ using SBM_Bioreactor
     solver = FESolver(nls)
     
     # Start from a perturbed initial guess
-    xh = interpolate_everywhere([x -> u_ex(x)*0.9, x -> p_ex(x)*0.0, x -> Φ_ex(x)*1.1, x -> C_ex(x)*0.95], X)
+    xh = interpolate_everywhere([x -> u_ex(x)*0.9, x -> p_ex(x)*0.0, x -> Φ_ex(x)*1.1, x -> C_ex(x)*0.95, x -> Γ_ex(x)*1.0], X)
     
     xh, _ = solve!(xh, solver, op)
     
-    uh, ph, Φh, Ch = xh
+    uh, ph, Φh, Ch, Γh = xh
     
     # 7. Verify Accuracy
     eu = u_ex - uh
     eΦ = Φ_ex - Φh
+    eΓ = Γ_ex - Γh
     
     l2(e) = sqrt(sum(∫(e⋅e)dΩ))
     
     @test l2(eu) < 1e-8
     @test l2(eΦ) < 1e-8
+    @test l2(eΓ) < 1e-8
 end

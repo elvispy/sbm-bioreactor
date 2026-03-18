@@ -15,17 +15,20 @@ using SBM_Bioreactor
     Q = TestFESpace(model, reffe_p, conformity=:H1)
     W = TestFESpace(model, reffe_s, conformity=:H1)
     Z = TestFESpace(model, reffe_s, conformity=:H1)
-    
+    G = TestFESpace(model, reffe_s, conformity=:H1)
+
     u_fun(x) = VectorValue(0.0, 0.0)
     p_fun(x) = 0.0
     Φ_fun(x) = 0.1
     C_fun(x) = 5.5
-    
+    Γ_fun(x) = 0.0
+
     uh = interpolate_everywhere(u_fun, V)
     ph = interpolate_everywhere(p_fun, Q)
     Φh = interpolate_everywhere(Φ_fun, W)
     Ch = interpolate_everywhere(C_fun, Z)
-    
+    Γh = interpolate_everywhere(Γ_fun, G)
+
     params = (
         μf = 0.5889,
         Φmax = 0.64,
@@ -41,26 +44,26 @@ using SBM_Bioreactor
         ke = 4.2e-6,
         d0 = 3.0e5
     )
-    
+
     dt = 1.0
     t = 0.0
-    
-    x = (uh, ph, Φh, Ch)
-    x_prevs = (uh, ph, Φh, Ch)
-    y = (uh, ph, Φh, Ch) # using functions from the space as test functions for simple evaluation
-    
+
+    x = (uh, ph, Φh, Ch, Γh)
+    x_prevs = (uh, ph, Φh, Ch, Γh)
+    y = (uh, ph, Φh, Ch, Γh)
+
     res = coupled_bioreactor_residual(x, (x_prevs,), y, dt, params, 1, t)
-    
+
     degree = 2
     Ω = Triangulation(model)
     dΩ = Measure(Ω, degree)
-    
+
     val = sum(∫(res)dΩ)
-    
+
     @test typeof(val) == Float64
-    
+
     # Test BDF2 call
-    res2 = coupled_bioreactor_residual(x, (x_prevs, x_prevs), y, dt, params, 2)
+    res2 = coupled_bioreactor_residual(x, (x_prevs, x_prevs), y, dt, params, 2, t)
     val2 = sum(∫(res2)dΩ)
     @test typeof(val2) == Float64
-end
+    end
