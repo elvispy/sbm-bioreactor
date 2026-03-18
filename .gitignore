@@ -1,0 +1,30 @@
+# Julia ignore
+*.jl.mem
+*.jl.prof
+*.log
+*.so
+*.dylib
+*.dll
+*~
+*.swp
+*.bak
+*.DS_Store
+
+# Package manager
+Manifest.toml
+# Keep Project.toml (it's the project manifest)
+
+# Test outputs and simulation artifacts
+*.vtu
+*.pvd
+*.png
+*.jpg
+results_*.vtu
+results_*.pvd
+
+# Documentation generated files
+docs/superpowers/plans/*.md.tmp
+docs/superpowers/specs/*.md.tmp
+
+# Julia temporary scratchspaces
+~/.julia/scratchspaces/
