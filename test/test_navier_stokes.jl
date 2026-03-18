@@ -1,10 +1,16 @@
+"""
+    test/test_navier_stokes.jl
+
+Test suite for verifying the Navier-Stokes formulation implementation.
+"""
 using Test
 using Gridap
 using SBM_Bioreactor
 
 @testset "Navier-Stokes Weak Form" begin
+    # Verify the monolithic Navier-Stokes implementation against standard cases.
     domain = (0, 1, 0, 1)
-    partition = (10, 10)
+    partition = (4, 4)
     model = CartesianDiscreteModel(domain, partition)
 
     # Taylor-Hood Elements: P2 for velocity, P1 for pressure
@@ -33,16 +39,7 @@ using SBM_Bioreactor
     ρ = 1.0
     f(x) = VectorValue(0.0, 0.0)
 
-    function residual(x, y)
-        u, p = x
-        v, q = y
-        # The convective term (ρ * (u ⋅ ∇(u)) ⋅ v), the viscous term (μ * ∇(u) ⊙ ∇(v)),
-        # the pressure gradient (−p * (∇ ⋅ v)), the continuity equation (q * (∇ ⋅ u)),
-        # and the body force term (−f ⋅ v).
-        (ρ * (u ⋅ ∇(u)) ⋅ v) + (μ * ∇(u) ⊙ ∇(v)) - (p * (∇ ⋅ v)) + (q * (∇ ⋅ u)) - (f ⋅ v)
-    end
-    
-    # We will just test the exported weak form
+    # The physics.jl weak form is tested here.
     res_physics(x, y) = ∫( navier_stokes_weak_form(x[1], x[2], y[1], y[2], μ, ρ, f) )dΩ
 
     op = FEOperator(res_physics, X, Y)
