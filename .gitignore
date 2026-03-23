@@ -1,30 +1,37 @@
-# Julia ignore
+
+.claude/
+.DS_Store
+.gemini/
+.idea/
+.requirements/
+.vscode/
+*.bak
+*.dll
+*.DS_Store
+*.dylib
 *.jl.mem
 *.jl.prof
-*.log
-*.so
-*.dylib
-*.dll
-*~
-*.swp
-*.bak
-*.DS_Store
-
-# Package manager
-Manifest.toml
-# Keep Project.toml (it's the project manifest)
-
-# Test outputs and simulation artifacts
-*.vtu
-*.pvd
-*.png
 *.jpg
-results_*.vtu
-results_*.pvd
-
+*.log
+*.png
+*.pvd
+*.so
+*.swp
+*.vtu
+**/__pycache__/
+**/*.pyc
+*~
+# --- Bookkeeping ---
 # Documentation generated files
+# Julia ignore
+# Julia temporary scratchspaces
+# Keep Project.toml (it's the project manifest)
+# Package manager
+# Test outputs and simulation artifacts
+~/.julia/scratchspaces/
 docs/superpowers/plans/*.md.tmp
 docs/superpowers/specs/*.md.tmp
-
-# Julia temporary scratchspaces
-~/.julia/scratchspaces/
+Manifest.toml
+results_*.pvd
+results_*.vtu
+tmp/
