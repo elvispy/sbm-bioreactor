@@ -21,55 +21,22 @@ using Gridap
 include("physics.jl")
 include("solver.jl")
 
-"""
-    run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=10)
-
-Executes the time-dependent SBM simulation.
-
-# Arguments
-- `X`: MultiFieldFESpace for the solution (u, p, Φ, C).
-- `Y`: MultiFieldFESpace for the test functions.
-- `dΩ`: Integration measure.
-- `dt`: Time step size.
-- `params`: NamedTuple of physical and model parameters.
-- `nsteps`: Number of simulation steps.
-- `write_vtk_interval`: Frequency of VTK file output.
-"""
+"""run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=10): Execute the time-dependent SBM simulation."""
 export run_bioreactor_simulation
 
-"""
-    krieger_viscosity(Φ, Φmax)
-
-Computes the local fluid viscosity using the Krieger-Dougherty model.
-"""
+"""krieger_viscosity(Φ, Φmax): Compute the local fluid viscosity using the Krieger-Dougherty model."""
 export krieger_viscosity
 
-"""
-    shear_rate(u)
-
-Computes the magnitude of the shear rate tensor for SBM migration.
-"""
+"""shear_rate(u): Compute the magnitude of the shear rate tensor for SBM migration."""
 export shear_rate
 
-"""
-    particle_flux(u, Φ, gradΦ, params)
-
-Computes the particle migration flux combining shear-induced and buoyancy effects.
-"""
+"""particle_flux(u, Φ, gradΦ, params): Compute the particle migration flux combining shear-induced and buoyancy effects."""
 export particle_flux
 
-"""
-    navier_stokes_weak_form(u, p, v, q, dΩ, params)
-
-Assembles the Navier-Stokes weak form for the bioreactor flow.
-"""
+"""navier_stokes_weak_form(u, p, v, q, dΩ, params): Assemble the Navier-Stokes weak form for the bioreactor flow."""
 export navier_stokes_weak_form
 
-"""
-    coupled_bioreactor_residual(X, Y, dΩ, params)
-
-Computes the monolithic residual for the (u, p, Φ, C) system.
-"""
+"""coupled_bioreactor_residual(X, Y, dΩ, params): Compute the monolithic residual for the (u, p, Φ, C) system."""
 export coupled_bioreactor_residual
 
 function run_simulation()
