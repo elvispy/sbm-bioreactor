@@ -1,4 +1,5 @@
 using Gridap
+using Gridap.MultiField: BlockMultiFieldStyle
 
 """
     harv_square_to_disk(p; radius=0.05)
@@ -23,6 +24,7 @@ function build_harv_2d_case(;
     radius=0.05,
     partition=(10, 10),
     degree=4,
+    blocked=false,
     omega_rpm=7.5,
     dt=0.1,
     total_time=10.0,
@@ -53,8 +55,14 @@ function build_harv_2d_case(;
     C_space = TrialFESpace(Z)
     Γ_space = TrialFESpace(G)
 
-    Y = MultiFieldFESpace([V, Q, W, Z, G])
-    X = MultiFieldFESpace([U, P, Φ_space, C_space, Γ_space])
+    mfs = blocked ? BlockMultiFieldStyle(2, (2, 3)) : nothing
+    if isnothing(mfs)
+        Y = MultiFieldFESpace([V, Q, W, Z, G])
+        X = MultiFieldFESpace([U, P, Φ_space, C_space, Γ_space])
+    else
+        Y = MultiFieldFESpace([V, Q, W, Z, G]; style=mfs)
+        X = MultiFieldFESpace([U, P, Φ_space, C_space, Γ_space]; style=mfs)
+    end
 
     Ω = Triangulation(model)
     dΩ = Measure(Ω, degree)
@@ -85,6 +93,7 @@ function build_harv_2d_case(;
         domain = domain,
         partition = partition,
         degree = degree,
+        blocked = blocked,
         omega_rpm = omega_rpm,
         dt = dt,
         total_time = total_time,

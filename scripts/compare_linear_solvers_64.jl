@@ -4,7 +4,7 @@ using GridapPETSc
 using LineSearches
 
 function build_problem(; n=64, degree=2, dt=0.1)
-    case = build_harv_2d_case(partition=(n, n), dt=dt, total_time=dt, degree=degree)
+    case = build_harv_2d_case(partition=(n, n), dt=dt, total_time=dt, degree=degree, blocked=true)
     params = merge(case.params, (use_explicit_jacobian=true,))
     x0 = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], case.X)
     x0_prevs = (x0,)
@@ -33,7 +33,7 @@ function timed_one_step(ls, case, x0, op; label)
 end
 
 case, params, x0, op = build_problem()
-println((ndofs=num_free_dofs(case.X), partition=case.metadata.partition))
+println((ndofs=num_free_dofs(case.X), partition=case.metadata.partition, blocked=case.metadata.blocked))
 
 timed_one_step(BackslashSolver(), case, x0, op; label="direct_backslash")
 
@@ -64,9 +64,9 @@ timed_petsc(
 )
 
 timed_petsc(
-    "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type fieldsplit -pc_fieldsplit_detect_saddle_point true -pc_fieldsplit_type schur -pc_fieldsplit_schur_fact_type lower -fieldsplit_0_ksp_type preonly -fieldsplit_0_pc_type ilu -fieldsplit_1_ksp_type preonly -fieldsplit_1_pc_type jacobi -ksp_converged_reason -ksp_error_if_not_converged true",
+    "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type fieldsplit -pc_fieldsplit_type multiplicative -fieldsplit_0_ksp_type preonly -fieldsplit_0_pc_type lu -fieldsplit_1_ksp_type preonly -fieldsplit_1_pc_type ilu -ksp_converged_reason -ksp_error_if_not_converged true",
     case,
     x0,
     op;
-    label="petsc_gmres_fieldsplit_schur",
+    label="petsc_gmres_fieldsplit_multiplicative",
 )
