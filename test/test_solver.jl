@@ -183,6 +183,38 @@ end
     richer_op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, richer_params, 1, case.metadata.dt)
     @test richer_op isa Gridap.FESpaces.FEOperator
 
-    unsupported_params = merge(params, (use_explicit_jacobian=true,))
-    @test_throws ErrorException SBM_Bioreactor.build_bioreactor_operator(X, Ymf, dΩ, (x_prevs,), dt, unsupported_params, 1, t)
+    viscosity_only_params = merge(
+        case.params,
+        (
+            enable_particle_flux = false,
+            freeze_viscosity = false,
+            include_convection = true,
+            enable_growth_source = true,
+            enable_nutrient_reaction = true,
+            use_explicit_jacobian = true,
+        ),
+    )
+    viscosity_only_op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, viscosity_only_params, 1, case.metadata.dt)
+    @test viscosity_only_op isa Gridap.FESpaces.FEOperator
+
+    flux_only_params = merge(
+        case.params,
+        (
+            enable_particle_flux = true,
+            freeze_viscosity = true,
+            include_convection = true,
+            enable_growth_source = true,
+            enable_nutrient_reaction = true,
+            use_explicit_jacobian = true,
+        ),
+    )
+    flux_only_op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, flux_only_params, 1, case.metadata.dt)
+    @test flux_only_op isa Gridap.FESpaces.FEOperator
+
+    full_explicit_params = merge(case.params, (use_explicit_jacobian=true,))
+    full_explicit_op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, full_explicit_params, 1, case.metadata.dt)
+    @test full_explicit_op isa Gridap.FESpaces.FEOperator
+
+    unsupported_params = merge(case.params, (use_explicit_jacobian=true,))
+    @test_throws ErrorException SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, unsupported_params, 2, case.metadata.dt)
 end

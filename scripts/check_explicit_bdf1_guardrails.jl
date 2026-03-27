@@ -98,3 +98,15 @@ richer_op = SBM_Bioreactor.build_bioreactor_operator(
     case.metadata.dt,
 )
 println(("richer_operator", typeof(richer_op)))
+
+full_op = SBM_Bioreactor.build_bioreactor_operator(
+    case.X,
+    case.Y,
+    case.dΩ,
+    x0_prevs,
+    case.metadata.dt,
+    merge(case.params, (use_explicit_jacobian = true,)),
+    1,
+    case.metadata.dt,
+)
+println(("full_operator", typeof(full_op)))

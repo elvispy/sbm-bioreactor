@@ -4,8 +4,6 @@ using LineSearches: BackTracking
 function _supports_explicit_bdf1_case(params, order)
     order == 1 || return false
     get(params, :use_explicit_jacobian, false) || return false
-    get(params, :enable_particle_flux, true) == false || return false
-    get(params, :freeze_viscosity, false) == true || return false
     return true
 end
 
@@ -24,6 +22,77 @@ function _one_cell_volume(a)
     return (π / 6.0) * a^3
 end
 
+function _krieger_viscosity_derivative(phi, μf, Φmax)
+    return 2.5 * μf * (1.0 - phi / Φmax)^(-2.5 * Φmax - 1.0)
+end
+
+function _krieger_viscosity_second_derivative(phi, μf, Φmax)
+    exponent = -2.5 * Φmax - 2.0
+    prefactor = 2.5 * μf * (2.5 * Φmax + 1.0) / Φmax
+    return prefactor * (1.0 - phi / Φmax)^exponent
+end
+
+function _viscosity_terms(Φ, dΦ, params; freeze_viscosity=false)
+    μf = params.μf
+    Φmax = params.Φmax
+
+    if freeze_viscosity
+        zero_like = 0.0 * dΦ
+        return μf, zero_like, zero_like, zero_like
+    end
+
+    visc_op(phi) = krieger_viscosity(phi; μf=μf, Φmax=Φmax)
+    dμ_dΦ_op(phi) = _krieger_viscosity_derivative(phi, μf, Φmax)
+    d2μ_dΦ2_op(phi) = _krieger_viscosity_second_derivative(phi, μf, Φmax)
+    μ = visc_op ∘ Φ
+    dμ = (dμ_dΦ_op ∘ Φ) * dΦ
+    ∇μ = (dμ_dΦ_op ∘ Φ) * ∇(Φ)
+    d∇μ = ((d2μ_dΦ2_op ∘ Φ) * dΦ) * ∇(Φ) + ((dμ_dΦ_op ∘ Φ) * ∇(dΦ))
+    return μ, dμ, ∇μ, d∇μ
+end
+
+function _sedimentation_velocity_frozen(params)
+    a = params.a
+    ρs = params.ρs
+    ρf = params.ρf
+    μf = params.μf
+    Φavg = params.Φavg
+    return (1.0 - Φavg) * (2.0 * a^2 * (ρs - ρf) / (9.0 * μf)) * params.g
+end
+
+function _particle_flux_directional_derivative(Φ, Γ, dΦ, dΓ, params; freeze_viscosity=false)
+    a = params.a
+    ∇ΓΦ = Γ * ∇(Φ) + Φ * ∇(Γ)
+    d∇ΓΦ = dΓ * ∇(Φ) + Γ * ∇(dΦ) + dΦ * ∇(Γ) + Φ * ∇(dΓ)
+    dJsc = -0.41 * (a^2) * ((dΦ * ∇ΓΦ) + (Φ * d∇ΓΦ))
+
+    if freeze_viscosity
+        ust = _sedimentation_velocity_frozen(params)
+        dJst = -(ust * dΦ)
+        return dJsc + dJst
+    end
+
+    μ, dμ, ∇μ, d∇μ = _viscosity_terms(Φ, dΦ, params; freeze_viscosity=false)
+    ∇lnμ = (1.0 / μ) * ∇μ
+    d∇lnμ = (-(dμ / (μ * μ)) * ∇μ) + ((1.0 / μ) * d∇μ)
+    dJsμ = -0.62 * (a^2) * (
+        (2.0 * Φ * dΦ * Γ * ∇lnμ) +
+        ((Φ * Φ) * dΓ * ∇lnμ) +
+        ((Φ * Φ) * Γ * d∇lnμ)
+    )
+
+    μf = params.μf
+    Φavg = params.Φavg
+    ρs = params.ρs
+    ρf = params.ρf
+    sedimentation_prefactor = μf * (1.0 - Φavg) * (2.0 * a^2 * (ρs - ρf) / 9.0)
+    ust = (sedimentation_prefactor / (μ * μ)) * params.g
+    dust = ((-2.0 * sedimentation_prefactor * dμ) / (μ * μ * μ)) * params.g
+    dJst = -(dust * Φ) - (ust * dΦ)
+
+    return dJsc + dJsμ + dJst
+end
+
 function _navier_stokes_convection_jacobian(u, du, v, ρ, dρ)
     convective_state = (u ⋅ ∇(u)) ⋅ v
     return (dρ * convective_state) + (ρ * ((du ⋅ ∇(u)) ⋅ v)) + (ρ * ((u ⋅ ∇(du)) ⋅ v))
@@ -34,7 +103,7 @@ function _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
     return v_γ * (dΓ - dshear)
 end
 
-function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=true)
+function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=true, freeze_viscosity=false)
     μf = params.μf
     ρs = params.ρs
     ρf = params.ρf
@@ -42,6 +111,7 @@ function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; i
 
     ρ = (1.0 - Φ) * ρf + Φ * ρs
     dρ = (ρs - ρf) * dΦ
+    μ, dμ, _, _ = _viscosity_terms(Φ, dΦ, params; freeze_viscosity=freeze_viscosity)
     drag_coeff = 4.0 * μf / (L^2)
     u_dot = (u - u_n) / dt
     du_dot = du / dt
@@ -53,7 +123,8 @@ function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; i
         jac += _navier_stokes_convection_jacobian(u, du, v, ρ, dρ)
     end
 
-    jac += (μf * ∇(du) ⊙ ∇(v)) -
+    jac += (dμ * (∇(u) ⊙ ∇(v))) +
+           (μ * ∇(du) ⊙ ∇(v)) -
            (dp * (∇ ⋅ v)) +
            (q * (∇ ⋅ du)) +
            (drag_coeff * (du ⋅ v))
@@ -61,11 +132,17 @@ function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; i
     return jac
 end
 
-function _continuity_jacobian_bdf1(dΦ, q, params)
-    return 0.0 * (dΦ * q)
+function _continuity_jacobian_bdf1(Φ, Γ, dΦ, dΓ, q, params; enable_particle_flux=false, freeze_viscosity=false)
+    if !enable_particle_flux
+        return 0.0 * (dΦ * q)
+    end
+
+    flux_coeff = (params.ρs - params.ρf) / (params.ρs * params.ρf)
+    dflux = _particle_flux_directional_derivative(Φ, Γ, dΦ, dΓ, params; freeze_viscosity=freeze_viscosity)
+    return ∇(q) ⋅ (dflux * flux_coeff)
 end
 
-function _phi_jacobian_bdf1(u, Φ, C, du, dΦ, dC, w, u_n, Φ_n, dt, params, t; enable_growth_source=true)
+function _phi_jacobian_bdf1(u, Φ, C, Γ, du, dΦ, dC, dΓ, w, u_n, Φ_n, dt, params, t; enable_growth_source=true, enable_particle_flux=false, freeze_viscosity=false)
     _ = u_n
     _ = Φ_n
     a = params.a
@@ -75,6 +152,12 @@ function _phi_jacobian_bdf1(u, Φ, C, du, dΦ, dC, w, u_n, Φ_n, dt, params, t; 
     jac = (w * (dΦ / dt)) +
           (w * (du ⋅ ∇(Φ))) +
           (w * (u ⋅ ∇(dΦ)))
+
+    if enable_particle_flux
+        flux_coeff = (params.ρs - params.ρf) / (params.ρs * params.ρf)
+        dflux = _particle_flux_directional_derivative(Φ, Γ, dΦ, dΓ, params; freeze_viscosity=freeze_viscosity)
+        jac += ∇(w) ⋅ (dflux * flux_coeff)
+    end
 
     if enable_growth_source
         source_coeff = _one_cell_volume(a) * kc * params.d0 * exp(ke * t)
@@ -210,7 +293,7 @@ Compute the explicit weak-form Jacobian for the currently supported easy BDF1 mo
 function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0.0)
     _supports_explicit_bdf1_case(params, order) || error(
         "Explicit Jacobian is currently supported only for BDF1 with " *
-        "freeze_viscosity=true and enable_particle_flux=false."
+        "enable_particle_flux=false."
     )
 
     u, p, Φ, C, Γ = x
@@ -223,11 +306,45 @@ function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0
     include_convection = _get_param(params, :include_convection, true)
     enable_growth_source = _get_param(params, :enable_growth_source, true)
     enable_nutrient_reaction = _get_param(params, :enable_nutrient_reaction, true)
+    enable_particle_flux = _get_param(params, :enable_particle_flux, true)
+    freeze_viscosity = _get_param(params, :freeze_viscosity, false)
 
     jac_gamma = _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
-    jac_ns = _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=include_convection)
-    jac_continuity = _continuity_jacobian_bdf1(dΦ, q, params)
-    jac_phi = _phi_jacobian_bdf1(u, Φ, C, du, dΦ, dC, w, u_n, Φ_n, dt, params, t; enable_growth_source=enable_growth_source)
+    jac_ns = _momentum_jacobian_bdf1(
+        u,
+        p,
+        Φ,
+        du,
+        dp,
+        dΦ,
+        v,
+        q,
+        u_n,
+        dt,
+        params;
+        include_convection=include_convection,
+        freeze_viscosity=freeze_viscosity,
+    )
+    jac_continuity = _continuity_jacobian_bdf1(Φ, Γ, dΦ, dΓ, q, params; enable_particle_flux=enable_particle_flux, freeze_viscosity=freeze_viscosity)
+    jac_phi = _phi_jacobian_bdf1(
+        u,
+        Φ,
+        C,
+        Γ,
+        du,
+        dΦ,
+        dC,
+        dΓ,
+        w,
+        u_n,
+        Φ_n,
+        dt,
+        params,
+        t;
+        enable_growth_source=enable_growth_source,
+        enable_particle_flux=enable_particle_flux,
+        freeze_viscosity=freeze_viscosity,
+    )
     jac_C = _nutrient_jacobian_bdf1(u, Φ, C, du, dΦ, dC, z, dt, params; enable_nutrient_reaction=enable_nutrient_reaction)
 
     return jac_ns + jac_continuity + jac_phi + jac_C + jac_gamma
