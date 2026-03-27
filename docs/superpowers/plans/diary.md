@@ -12,3 +12,8 @@
 - Warm autodiff assembly exceeded `180 s`.
 - Explicit `BDF1` speedup exceeds `320x` lower bound.
 - Next focus: solver-level benchmarking, not Jacobian algebra.
+- Warmed scaling reached `256x256` on `mac-zerotier`.
+- `256x256` one-step explicit `BDF1` took `98.4 s`.
+- Operator build stays cheap at large meshes.
+- Solve phase now dominates large-mesh runtime.
+- Next focus: linear algebra and preconditioning.
