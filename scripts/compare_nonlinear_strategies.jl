@@ -137,7 +137,7 @@ function print_result(name, result, elapsed; extra="")
     @printf("  iterations = %d\n", result.iterations)
     @printf("  f_converged = %s\n", result.f_converged)
     @printf("  x_converged = %s\n", result.x_converged)
-    @printf("  residual_inf = %.6e\n", maximum(abs, result.f))
+    @printf("  residual_norm = %.6e\n", result.residual_norm)
     @printf("  elapsed = %.3f s\n", elapsed)
     isempty(extra) || println(extra)
 end
