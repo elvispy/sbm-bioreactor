@@ -143,6 +143,8 @@ solver = FESolver(nls)
 
 t_one_ad = NaN
 t_one_ex = NaN
+t_one_ad_warm = NaN
+t_one_ex_warm = NaN
 if run_ad
     x_ad = copy_state(case.X, x0)
     t_one_ad = @elapsed begin
@@ -155,6 +157,17 @@ if run_ad
         end
     end
     @printf("autodiff_one_step_time = %.3f s\n", t_one_ad)
+    x_ad_warm = copy_state(case.X, x0)
+    t_one_ad_warm = @elapsed begin
+        println("running autodiff warm one-step solve ...")
+        try
+            solve!(x_ad_warm, solver, op_ad)
+        catch err
+            println("autodiff_warm_one_step_error=$(typeof(err))")
+            println(err)
+        end
+    end
+    @printf("autodiff_warm_one_step_time = %.3f s\n", t_one_ad_warm)
 end
 if run_ex
     x_ex = copy_state(case.X, x0)
@@ -168,7 +181,19 @@ if run_ex
         end
     end
     @printf("explicit_one_step_time = %.3f s\n", t_one_ex)
+    x_ex_warm = copy_state(case.X, x0)
+    t_one_ex_warm = @elapsed begin
+        println("running explicit warm one-step solve ...")
+        try
+            solve!(x_ex_warm, solver, op_ex)
+        catch err
+            println("explicit_warm_one_step_error=$(typeof(err))")
+            println(err)
+        end
+    end
+    @printf("explicit_warm_one_step_time = %.3f s\n", t_one_ex_warm)
 end
 if run_ad && run_ex
     @printf("one_step_speedup = %.2fx\n", t_one_ad / t_one_ex)
+    @printf("warm_one_step_speedup = %.2fx\n", t_one_ad_warm / t_one_ex_warm)
 end
