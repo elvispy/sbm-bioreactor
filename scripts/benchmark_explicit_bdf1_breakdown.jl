@@ -8,7 +8,7 @@ function build_case_data(n; degree=2, dt=0.1)
     params = merge(case.params, (use_explicit_jacobian=true,))
     x0 = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], case.X)
     x0_prevs = (x0,)
-    op = build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, params, 1, case.metadata.dt)
+    op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, params, 1, case.metadata.dt)
     return case, params, x0, op
 end
 
