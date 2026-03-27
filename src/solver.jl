@@ -1,14 +1,11 @@
 using Gridap
 using LineSearches: BackTracking
 
-function _is_easy_explicit_jacobian_case(params, order)
+function _supports_explicit_bdf1_case(params, order)
     order == 1 || return false
     get(params, :use_explicit_jacobian, false) || return false
     get(params, :enable_particle_flux, true) == false || return false
     get(params, :freeze_viscosity, false) == true || return false
-    get(params, :include_convection, true) == false || return false
-    get(params, :enable_growth_source, true) == false || return false
-    get(params, :enable_nutrient_reaction, true) == false || return false
     return true
 end
 
@@ -21,6 +18,87 @@ function _shear_rate_directional_derivative(u, du)
     dshear_arg = 4.0 * ε(u) ⊙ ε(du)
     d_shear_rate_op(x) = sign(x) / (2.0 * sqrt(abs(x) + 1.0e-10))
     return (d_shear_rate_op ∘ shear_arg) * dshear_arg
+end
+
+function _one_cell_volume(a)
+    return (π / 6.0) * a^3
+end
+
+function _navier_stokes_convection_jacobian(u, du, v, ρ, dρ)
+    convective_state = (u ⋅ ∇(u)) ⋅ v
+    return (dρ * convective_state) + (ρ * ((du ⋅ ∇(u)) ⋅ v)) + (ρ * ((u ⋅ ∇(du)) ⋅ v))
+end
+
+function _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
+    dshear = _shear_rate_directional_derivative(u, du)
+    return v_γ * (dΓ - dshear)
+end
+
+function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=true)
+    μf = params.μf
+    ρs = params.ρs
+    ρf = params.ρf
+    L = params.L
+
+    ρ = (1.0 - Φ) * ρf + Φ * ρs
+    dρ = (ρs - ρf) * dΦ
+    drag_coeff = 4.0 * μf / (L^2)
+    u_dot = (u - u_n) / dt
+    du_dot = du / dt
+
+    jac = (dρ * (u_dot ⋅ v)) +
+          (ρ * (du_dot ⋅ v))
+
+    if include_convection
+        jac += _navier_stokes_convection_jacobian(u, du, v, ρ, dρ)
+    end
+
+    jac += (μf * ∇(du) ⊙ ∇(v)) -
+           (dp * (∇ ⋅ v)) +
+           (q * (∇ ⋅ du)) +
+           (drag_coeff * (du ⋅ v))
+
+    return jac
+end
+
+function _continuity_jacobian_bdf1(dΦ, q, params)
+    return 0.0 * (dΦ * q)
+end
+
+function _phi_jacobian_bdf1(u, Φ, C, du, dΦ, dC, w, u_n, Φ_n, dt, params, t; enable_growth_source=true)
+    _ = u_n
+    _ = Φ_n
+    a = params.a
+    kc = params.kc
+    ke = params.ke
+
+    jac = (w * (dΦ / dt)) +
+          (w * (du ⋅ ∇(Φ))) +
+          (w * (u ⋅ ∇(dΦ)))
+
+    if enable_growth_source
+        source_coeff = _one_cell_volume(a) * kc * params.d0 * exp(ke * t)
+        jac -= w * (source_coeff * dC)
+    end
+
+    return jac
+end
+
+function _nutrient_jacobian_bdf1(u, Φ, C, du, dΦ, dC, z, dt, params; enable_nutrient_reaction=true)
+    a = params.a
+    Df = params.Df
+
+    jac = (z * (dC / dt)) +
+          (z * (du ⋅ ∇(C))) +
+          (z * (u ⋅ ∇(dC))) +
+          (Df * ∇(z) ⊙ ∇(dC))
+
+    if enable_nutrient_reaction
+        reaction_coeff = params.kc / _one_cell_volume(a)
+        jac += z * (reaction_coeff * dΦ)
+    end
+
+    return jac
 end
 
 """
@@ -130,10 +208,9 @@ end
 Compute the explicit weak-form Jacobian for the currently supported easy BDF1 monolithic case.
 """
 function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0.0)
-    _is_easy_explicit_jacobian_case(params, order) || error(
-        "Explicit Jacobian is currently supported only for the BDF1 easy case with " *
-        "freeze_viscosity=true, enable_particle_flux=false, include_convection=false, " *
-        "enable_growth_source=false, and enable_nutrient_reaction=false."
+    _supports_explicit_bdf1_case(params, order) || error(
+        "Explicit Jacobian is currently supported only for BDF1 with " *
+        "freeze_viscosity=true and enable_particle_flux=false."
     )
 
     u, p, Φ, C, Γ = x
@@ -142,50 +219,24 @@ function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0
     u_n, _, Φ_n, C_n, _ = x_prevs[1]
 
     μf = params.μf
-    ρs = params.ρs
-    ρf = params.ρf
-    Df = params.Df
-    L = params.L
+    _ = μf
+    include_convection = _get_param(params, :include_convection, true)
+    enable_growth_source = _get_param(params, :enable_growth_source, true)
+    enable_nutrient_reaction = _get_param(params, :enable_nutrient_reaction, true)
 
-    ρ = (1.0 - Φ) * ρf + Φ * ρs
-    dρ = (ρs - ρf) * dΦ
-    drag_coeff = 4.0 * μf / (L^2)
+    jac_gamma = _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
+    jac_ns = _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=include_convection)
+    jac_continuity = _continuity_jacobian_bdf1(dΦ, q, params)
+    jac_phi = _phi_jacobian_bdf1(u, Φ, C, du, dΦ, dC, w, u_n, Φ_n, dt, params, t; enable_growth_source=enable_growth_source)
+    jac_C = _nutrient_jacobian_bdf1(u, Φ, C, du, dΦ, dC, z, dt, params; enable_nutrient_reaction=enable_nutrient_reaction)
 
-    u_dot = (u - u_n) / dt
-    du_dot = du / dt
-    dΦ_dot = dΦ / dt
-    dC_dot = dC / dt
-
-    dshear = _shear_rate_directional_derivative(u, du)
-
-    jac_ns =
-        (dρ * (u_dot ⋅ v)) +
-        (ρ * (du_dot ⋅ v)) +
-        (μf * ∇(du) ⊙ ∇(v)) -
-        (dp * (∇ ⋅ v)) +
-        (q * (∇ ⋅ du)) -
-        (drag_coeff * (du ⋅ v))
-
-    jac_phi =
-        (w * dΦ_dot) +
-        (w * (du ⋅ ∇(Φ))) +
-        (w * (u ⋅ ∇(dΦ)))
-
-    jac_C =
-        (z * dC_dot) +
-        (z * (du ⋅ ∇(C))) +
-        (z * (u ⋅ ∇(dC))) +
-        (Df * ∇(z) ⊙ ∇(dC))
-
-    jac_gamma = v_γ * (dΓ - dshear)
-
-    return jac_ns + jac_phi + jac_C + jac_gamma
+    return jac_ns + jac_continuity + jac_phi + jac_C + jac_gamma
 end
 
 function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     res(x, y) = ∫(coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t))dΩ
     if _get_param(params, :use_explicit_jacobian, false)
-        _is_easy_explicit_jacobian_case(params, order) || error(
+        _supports_explicit_bdf1_case(params, order) || error(
             "Requested use_explicit_jacobian=true for an unsupported configuration."
         )
         jac(x, dx, y) = ∫(coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order, t))dΩ
