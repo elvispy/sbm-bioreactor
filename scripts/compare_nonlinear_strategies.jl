@@ -142,8 +142,79 @@ function print_result(name, result, elapsed; extra="")
     isempty(extra) || println(extra)
 end
 
+function run_strategy!(strategy, df, x0, op, scales; maxiters=200)
+    println("running strategy=$(strategy), maxiters=$(maxiters)")
+    flush(stdout)
+
+    if strategy == "baseline"
+        elapsed = @elapsed begin
+            global result = Gridap.Algebra.nlsolve(
+                df,
+                copy(x0);
+                method = :newton,
+                linesearch = BackTracking(),
+                show_trace = false,
+                iterations = maxiters,
+            )
+        end
+        print_result("baseline_newton_backtracking", result, elapsed, extra="  maxiters = $(maxiters)")
+        return
+    end
+
+    if strategy == "xtol"
+        elapsed = @elapsed begin
+            global result = Gridap.Algebra.nlsolve(
+                df,
+                copy(x0);
+                method = :newton,
+                linesearch = BackTracking(),
+                show_trace = false,
+                iterations = maxiters,
+                xtol = 1.0e-10,
+            )
+        end
+        print_result("newton_with_xtol", result, elapsed, extra="  xtol = 1e-10, maxiters = $(maxiters)")
+        return
+    end
+
+    if strategy == "trust_region"
+        elapsed = @elapsed begin
+            global result = Gridap.Algebra.nlsolve(
+                df,
+                copy(x0);
+                method = :trust_region,
+                show_trace = false,
+                iterations = maxiters,
+                autoscale = true,
+            )
+        end
+        print_result("trust_region_autoscale", result, elapsed, extra="  autoscale = true, maxiters = $(maxiters)")
+        return
+    end
+
+    if strategy == "scaled"
+        scaled_df, z0 = make_scaled_df(op, x0, scales)
+        elapsed = @elapsed begin
+            global result = Gridap.Algebra.nlsolve(
+                scaled_df,
+                copy(z0);
+                method = :newton,
+                linesearch = BackTracking(),
+                show_trace = false,
+                iterations = maxiters,
+            )
+        end
+        print_result("newton_with_field_scaling", result, elapsed, extra="  scaling acts on unknown blocks only, maxiters = $(maxiters)")
+        return
+    end
+
+    error("Unknown strategy: $(strategy)")
+end
+
 partition = length(ARGS) >= 1 ? (parse(Int, ARGS[1]), parse(Int, ARGS[1])) : (1, 1)
 degree = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 2
+strategy = length(ARGS) >= 3 ? ARGS[3] : "all"
+maxiters = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 200
 
 case, params, op, x0, block_lengths = make_easy_case(partition=partition, degree=degree)
 scales, field_scales = build_scaling_vector(block_lengths, params)
@@ -152,55 +223,15 @@ println("nonlinear strategy comparison")
 println("partition=$(partition), degree=$(degree), dofs=$(length(x0))")
 println("block_lengths=$(block_lengths)")
 println("field_scales=$(field_scales)")
+println("requested_strategy=$(strategy)")
+println("maxiters=$(maxiters)")
 
 df = make_df(op, x0)
 
-t_baseline = @elapsed begin
-    global baseline = Gridap.Algebra.nlsolve(
-        df,
-        copy(x0);
-        method = :newton,
-        linesearch = BackTracking(),
-        show_trace = false,
-        iterations = 1000,
-    )
+if strategy == "all"
+    for name in ("baseline", "xtol", "trust_region", "scaled")
+        run_strategy!(name, df, x0, op, scales; maxiters=maxiters)
+    end
+else
+    run_strategy!(strategy, df, x0, op, scales; maxiters=maxiters)
 end
-print_result("baseline_newton_backtracking", baseline, t_baseline)
-
-t_xtol = @elapsed begin
-    global xtol_run = Gridap.Algebra.nlsolve(
-        df,
-        copy(x0);
-        method = :newton,
-        linesearch = BackTracking(),
-        show_trace = false,
-        iterations = 1000,
-        xtol = 1.0e-10,
-    )
-end
-print_result("newton_with_xtol", xtol_run, t_xtol, extra="  xtol = 1e-10")
-
-t_tr = @elapsed begin
-    global trust_region_run = Gridap.Algebra.nlsolve(
-        df,
-        copy(x0);
-        method = :trust_region,
-        show_trace = false,
-        iterations = 1000,
-        autoscale = true,
-    )
-end
-print_result("trust_region_autoscale", trust_region_run, t_tr)
-
-scaled_df, z0 = make_scaled_df(op, x0, scales)
-t_scaled = @elapsed begin
-    global scaled_run = Gridap.Algebra.nlsolve(
-        scaled_df,
-        copy(z0);
-        method = :newton,
-        linesearch = BackTracking(),
-        show_trace = false,
-        iterations = 1000,
-    )
-end
-print_result("newton_with_field_scaling", scaled_run, t_scaled, extra="  scaling acts on unknown blocks only")
