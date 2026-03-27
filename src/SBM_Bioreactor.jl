@@ -43,6 +43,9 @@ export navier_stokes_weak_form
 @doc "coupled_bioreactor_residual(X, Y, dΩ, params): Compute the monolithic residual for the (u, p, Φ, C) system." coupled_bioreactor_residual
 export coupled_bioreactor_residual
 
+@doc "coupled_bioreactor_jacobian(X, dX, Y, dΩ, params): Compute the explicit weak-form Jacobian for the supported easy monolithic case." coupled_bioreactor_jacobian
+export coupled_bioreactor_jacobian
+
 function run_simulation()
     println("Simulation started.")
 end

@@ -1,6 +1,28 @@
 using Gridap
 using LineSearches: BackTracking
 
+function _is_easy_explicit_jacobian_case(params, order)
+    order == 1 || return false
+    get(params, :use_explicit_jacobian, false) || return false
+    get(params, :enable_particle_flux, true) == false || return false
+    get(params, :freeze_viscosity, false) == true || return false
+    get(params, :include_convection, true) == false || return false
+    get(params, :enable_growth_source, true) == false || return false
+    get(params, :enable_nutrient_reaction, true) == false || return false
+    return true
+end
+
+function _get_param(params, name, default)
+    hasproperty(params, name) ? getproperty(params, name) : default
+end
+
+function _shear_rate_directional_derivative(u, du)
+    shear_arg = 2.0 * ε(u) ⊙ ε(u)
+    dshear_arg = 4.0 * ε(u) ⊙ ε(du)
+    d_shear_rate_op(x) = sign(x) / (2.0 * sqrt(abs(x) + 1.0e-10))
+    return (d_shear_rate_op ∘ shear_arg) * dshear_arg
+end
+
 """
     coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
 
@@ -103,6 +125,76 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
 end
 
 """
+    coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0.0)
+
+Compute the explicit weak-form Jacobian for the currently supported easy BDF1 monolithic case.
+"""
+function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0.0)
+    _is_easy_explicit_jacobian_case(params, order) || error(
+        "Explicit Jacobian is currently supported only for the BDF1 easy case with " *
+        "freeze_viscosity=true, enable_particle_flux=false, include_convection=false, " *
+        "enable_growth_source=false, and enable_nutrient_reaction=false."
+    )
+
+    u, p, Φ, C, Γ = x
+    du, dp, dΦ, dC, dΓ = dx
+    v, q, w, z, v_γ = y
+    u_n, _, Φ_n, C_n, _ = x_prevs[1]
+
+    μf = params.μf
+    ρs = params.ρs
+    ρf = params.ρf
+    Df = params.Df
+    L = params.L
+
+    ρ = (1.0 - Φ) * ρf + Φ * ρs
+    dρ = (ρs - ρf) * dΦ
+    drag_coeff = 4.0 * μf / (L^2)
+
+    u_dot = (u - u_n) / dt
+    du_dot = du / dt
+    dΦ_dot = dΦ / dt
+    dC_dot = dC / dt
+
+    dshear = _shear_rate_directional_derivative(u, du)
+
+    jac_ns =
+        (dρ * (u_dot ⋅ v)) +
+        (ρ * (du_dot ⋅ v)) +
+        (μf * ∇(du) ⊙ ∇(v)) -
+        (dp * (∇ ⋅ v)) +
+        (q * (∇ ⋅ du)) -
+        (drag_coeff * (du ⋅ v))
+
+    jac_phi =
+        (w * dΦ_dot) +
+        (w * (du ⋅ ∇(Φ))) +
+        (w * (u ⋅ ∇(dΦ)))
+
+    jac_C =
+        (z * dC_dot) +
+        (z * (du ⋅ ∇(C))) +
+        (z * (u ⋅ ∇(dC))) +
+        (Df * ∇(z) ⊙ ∇(dC))
+
+    jac_gamma = v_γ * (dΓ - dshear)
+
+    return jac_ns + jac_phi + jac_C + jac_gamma
+end
+
+function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
+    res(x, y) = ∫(coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t))dΩ
+    if _get_param(params, :use_explicit_jacobian, false)
+        _is_easy_explicit_jacobian_case(params, order) || error(
+            "Requested use_explicit_jacobian=true for an unsupported configuration."
+        )
+        jac(x, dx, y) = ∫(coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order, t))dΩ
+        return FEOperator(res, jac, X, Y)
+    end
+    return FEOperator(res, X, Y)
+end
+
+"""
     run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
 Execute the time-stepping loop for the bioreactor simulation using a Newton solver.
@@ -157,8 +249,7 @@ function run_bioreactor_simulation(
         # Define the residual on the triangulation
         op = nothing
         op_build_time = @elapsed begin
-            res(x, y) = ∫( coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t) )dΩ
-            op = FEOperator(res, X, Y)
+            op = build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
         end
         if profile_steps
             println("profile: step=$(step) operator_build_time=$(round(op_build_time, digits=3)) s")

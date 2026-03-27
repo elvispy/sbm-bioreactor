@@ -61,9 +61,43 @@ using SBM_Bioreactor
     val = sum(∫(res)dΩ)
 
     @test typeof(val) == Float64
+    @test isfinite(val)
 
     # Test BDF2 call
     res2 = coupled_bioreactor_residual(x, (x_prevs, x_prevs), y, dt, params, 2, t)
     val2 = sum(∫(res2)dΩ)
     @test typeof(val2) == Float64
-    end
+    @test isfinite(val2)
+
+    # Any order other than 1 is currently treated as the multi-step branch.
+    res3 = coupled_bioreactor_residual(x, (x_prevs, x_prevs), y, dt, params, 99, t)
+    val3 = sum(∫(res3)dΩ)
+    @test isfinite(val3)
+
+    ablated_params = merge(
+        params,
+        (
+            enable_particle_flux = false,
+            freeze_viscosity = true,
+            include_convection = false,
+            enable_growth_source = false,
+            enable_nutrient_reaction = false,
+        ),
+    )
+    res4 = coupled_bioreactor_residual(x, (x_prevs,), y, dt, ablated_params, 1, t)
+    val4 = sum(∫(res4)dΩ)
+    @test isfinite(val4)
+
+    jac4 = coupled_bioreactor_jacobian(x, (x_prevs,), x, y, dt, merge(ablated_params, (use_explicit_jacobian=true,)), 1, t)
+    jac_val4 = sum(∫(jac4)dΩ)
+    @test isfinite(jac_val4)
+
+    explicit_params = merge(ablated_params, (use_explicit_jacobian=true,))
+    X = MultiFieldFESpace([TrialFESpace(V), TrialFESpace(Q), TrialFESpace(W), TrialFESpace(Z), TrialFESpace(G)])
+    Ymf = MultiFieldFESpace([V, Q, W, Z, G])
+    op = SBM_Bioreactor.build_bioreactor_operator(X, Ymf, dΩ, (x_prevs,), dt, explicit_params, 1, t)
+    @test op isa Gridap.FESpaces.FEOperator
+
+    unsupported_params = merge(params, (use_explicit_jacobian=true,))
+    @test_throws ErrorException SBM_Bioreactor.build_bioreactor_operator(X, Ymf, dΩ, (x_prevs,), dt, unsupported_params, 1, t)
+end
