@@ -75,8 +75,8 @@ using SBM_Bioreactor
         interpolate_everywhere(x -> Γ_ex(x, t), G),
     )
 
-    res_unsteady = coupled_bioreactor_residual(x_exact, (x_prev,), y_probe, dt, params, 1, t)
-    res_frozen = coupled_bioreactor_residual(x_exact, (x_exact,), y_probe, dt, params, 1, t)
+    res_unsteady = coupled_bioreactor_residual(x_exact, (x_prev,),  y_probe, dt, params, 1, t)
+    res_frozen   = coupled_bioreactor_residual(x_exact, (x_exact,), y_probe, dt, params, 1, t)
 
     unsteady_scalar = sum(∫(res_unsteady)dΩ)
     frozen_scalar = sum(∫(res_frozen)dΩ)

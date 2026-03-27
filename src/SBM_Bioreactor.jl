@@ -19,10 +19,14 @@ module SBM_Bioreactor
 using Gridap
 
 include("physics.jl")
+include("examples.jl")
 include("solver.jl")
 
 @doc "run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=10): Execute the time-dependent SBM simulation." run_bioreactor_simulation
 export run_bioreactor_simulation
+
+@doc "build_harv_2d_case(; kwargs...): Construct a tutorial-scale 2D HARV setup for the 5-field solver." build_harv_2d_case
+export build_harv_2d_case
 
 @doc "krieger_viscosity(Φ, Φmax): Compute the local fluid viscosity using the Krieger-Dougherty model." krieger_viscosity
 export krieger_viscosity

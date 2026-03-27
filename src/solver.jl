@@ -93,7 +93,7 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
 end
 
 """
-    run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1)
+    run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false)
 
 Execute the time-stepping loop for the bioreactor simulation using a Newton solver.
 
@@ -105,7 +105,17 @@ Execute the time-stepping loop for the bioreactor simulation using a Newton solv
 - `nsteps`: Number of time steps.
 - `write_vtk_interval`: Frequency of VTK output.
 """
-function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1)
+function run_bioreactor_simulation(
+    X,
+    Y,
+    dΩ,
+    dt,
+    params,
+    nsteps;
+    write_vtk_interval=1,
+    output_prefix="results",
+    collect_history=false,
+)
     # Initial state interpolation
     x_n = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], X)
     x_nn = x_n # For BDF2, first step fallback to BDF1 logic
@@ -115,6 +125,8 @@ function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_inte
     solver = FESolver(nls)
     
     xh = x_n
+    history = collect_history ? Any[x_n] : nothing
+    times = collect_history ? Float64[0.0] : nothing
     
     for step in 1:nsteps
         t = step * dt
@@ -134,13 +146,20 @@ function run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_inte
         # Update time-history
         x_nn = x_n
         x_n = xh
+        if collect_history
+            push!(history, xh)
+            push!(times, t)
+        end
         
         # Diagnostic output
-        if step % write_vtk_interval == 0
-            writevtk(get_triangulation(dΩ), "results_$step", 
+        if write_vtk_interval > 0 && step % write_vtk_interval == 0
+            writevtk(get_triangulation(dΩ), "$(output_prefix)_$step", 
                      cellfields=["u"=>xh[1], "p"=>xh[2], "phi"=>xh[3], "C"=>xh[4], "gamma"=>xh[5]])
         end
     end
     
+    if collect_history
+        return (final_state=xh, history=history, times=times)
+    end
     return xh
 end
