@@ -37,7 +37,36 @@ println((ndofs=num_free_dofs(case.X), partition=case.metadata.partition))
 
 timed_one_step(BackslashSolver(), case, x0, op; label="direct_backslash")
 
-options = "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type ilu -ksp_converged_reason -ksp_error_if_not_converged true"
-GridapPETSc.with(args=split(options)) do
-    timed_one_step(PETScLinearSolver(), case, x0, op; label="petsc_gmres_ilu")
+function timed_petsc(options, case, x0, op; label)
+    try
+        GridapPETSc.with(args=split(options)) do
+            timed_one_step(PETScLinearSolver(), case, x0, op; label=label)
+        end
+    catch err
+        println((label=label, error=sprint(showerror, err)))
+    end
 end
+
+timed_petsc(
+    "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type jacobi -ksp_converged_reason -ksp_error_if_not_converged true",
+    case,
+    x0,
+    op;
+    label="petsc_gmres_jacobi",
+)
+
+timed_petsc(
+    "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type ilu -ksp_converged_reason -ksp_error_if_not_converged true",
+    case,
+    x0,
+    op;
+    label="petsc_gmres_ilu",
+)
+
+timed_petsc(
+    "-ksp_type gmres -ksp_rtol 1.0e-8 -ksp_atol 1.0e-12 -pc_type fieldsplit -pc_fieldsplit_detect_saddle_point true -pc_fieldsplit_type schur -pc_fieldsplit_schur_fact_type lower -fieldsplit_0_ksp_type preonly -fieldsplit_0_pc_type ilu -fieldsplit_1_ksp_type preonly -fieldsplit_1_pc_type jacobi -ksp_converged_reason -ksp_error_if_not_converged true",
+    case,
+    x0,
+    op;
+    label="petsc_gmres_fieldsplit_schur",
+)
