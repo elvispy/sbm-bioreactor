@@ -56,44 +56,54 @@ function coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
     kc = params.kc
     ke = params.ke
     d0 = params.d0
+    freeze_viscosity = hasproperty(params, :freeze_viscosity) ? params.freeze_viscosity : false
+    enable_particle_flux = hasproperty(params, :enable_particle_flux) ? params.enable_particle_flux : true
+    enable_growth_source = hasproperty(params, :enable_growth_source) ? params.enable_growth_source : true
+    enable_nutrient_reaction = hasproperty(params, :enable_nutrient_reaction) ? params.enable_nutrient_reaction : true
+    include_convection = hasproperty(params, :include_convection) ? params.include_convection : true
     
     # Constitutive Relations: Mixture density and Krieger-Dougherty viscosity
     ρ = (1.0 - Φ) * ρf + Φ * ρs
-    visc_op(phi) = krieger_viscosity(phi; μf=μf, Φmax=Φmax)
-    μ = visc_op ∘ Φ
-    
-    # Analytical gradient of viscosity with respect to Φ (for the migration terms)
-    # dμ/dΦ = μf * (-2.5*Φmax) * (1-Φ/Φmax)^(-2.5*Φmax-1) * (-1/Φmax)
-    dμ_dΦ_op(phi) = 2.5 * μf * (1.0 - phi/Φmax)^(-2.5*Φmax - 1.0)
-    ∇μ = (dμ_dΦ_op ∘ Φ) * ∇(Φ)
+    if freeze_viscosity
+        μ = μf
+        ∇μ = 0.0 * ∇(Φ)
+    else
+        visc_op(phi) = krieger_viscosity(phi; μf=μf, Φmax=Φmax)
+        μ = visc_op ∘ Φ
+        
+        # Analytical gradient of viscosity with respect to Φ (for the migration terms)
+        # dμ/dΦ = μf * (-2.5*Φmax) * (1-Φ/Φmax)^(-2.5*Φmax-1) * (-1/Φmax)
+        dμ_dΦ_op(phi) = 2.5 * μf * (1.0 - phi/Φmax)^(-2.5*Φmax - 1.0)
+        ∇μ = (dμ_dΦ_op ∘ Φ) * ∇(Φ)
+    end
     
     # 1. Shear Rate Projection: Smooth Γ to calculate ∇Γ in the migration flux
     res_gamma = v_γ * (Γ - shear_rate(u))
 
     # 2. Momentum Balance: Navier Stokes + Hele-Shaw depth-averaged friction
     drag_coeff = 4.0 * μf / (L^2)
-    res_ns = (ρ * u_dot ⋅ v) + navier_stokes_weak_form(u, p, v, q, μ, ρ, g, u_wall, drag_coeff)
+    res_ns = (ρ * u_dot ⋅ v) + navier_stokes_weak_form(u, p, v, q, μ, ρ, g, u_wall, drag_coeff; include_convection=include_convection)
     
     # 3. Modified Continuity: ∇⋅u = - ∇⋅(J * (1/ρs - 1/ρf))
     # This accounts for volume changes when particles migrate in a variable density mixture.
-    flux = particle_flux(u, Φ, ∇(Φ), μ, ∇μ, a, ρs, ρf, μf, Φavg, g, Γ, ∇(Γ))
+    flux = enable_particle_flux ? particle_flux(u, Φ, ∇(Φ), μ, ∇μ, a, ρs, ρf, μf, Φavg, g, Γ, ∇(Γ)) : (0.0 * ∇(Φ))
     res_continuity_rhs = ∇(q) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))
     
     # 4. Particle Transport: ∂Φ/∂t + u⋅∇Φ = -∇⋅J + Source
     # Source term models cell proliferation (B.7)
-    source_phi = (π/6.0 * a^3) * kc * C * d0 * exp(ke * t)
+    source_phi = enable_growth_source ? (π/6.0 * a^3) * kc * C * d0 * exp(ke * t) : 0.0
     res_phi = (w * Φ_dot) + (w * (u ⋅ ∇(Φ))) + (∇(w) ⋅ (flux * ((ρs - ρf) / (ρs * ρf)))) - (w * source_phi)
     
     # 5. Nutrient Transport: Advection-Diffusion-Reaction
     # Consumption rate rc is proportional to cell concentration (Φ / volume_of_one_cell)
-    rc = -kc * (Φ / (π/6.0 * a^3))
+    rc = enable_nutrient_reaction ? -kc * (Φ / (π/6.0 * a^3)) : 0.0
     res_C = (z * C_dot) + (z * (u ⋅ ∇(C))) + (Df * ∇(z) ⊙ ∇(C)) - (z * rc)
     
     return res_ns + res_continuity_rhs + res_phi + res_C + res_gamma
 end
 
 """
-    run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false)
+    run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
 Execute the time-stepping loop for the bioreactor simulation using a Newton solver.
 
@@ -115,9 +125,16 @@ function run_bioreactor_simulation(
     write_vtk_interval=1,
     output_prefix="results",
     collect_history=false,
+    profile_steps=false,
 )
     # Initial state interpolation
-    x_n = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], X)
+    x_n = nothing
+    initial_setup_time = @elapsed begin
+        x_n = interpolate_everywhere([params.u0, params.p0, params.Φ0, params.C0, params.Γ0], X)
+    end
+    if profile_steps
+        println("profile: initial_setup_time=$(round(initial_setup_time, digits=3)) s")
+    end
     x_nn = x_n # For BDF2, first step fallback to BDF1 logic
     
     # Newton-Raphson solver with BackTracking line search for stability
@@ -127,6 +144,7 @@ function run_bioreactor_simulation(
     xh = x_n
     history = collect_history ? Any[x_n] : nothing
     times = collect_history ? Float64[0.0] : nothing
+    step_profiles = profile_steps ? NamedTuple[] : nothing
     
     for step in 1:nsteps
         t = step * dt
@@ -137,11 +155,24 @@ function run_bioreactor_simulation(
         x_prevs = order == 1 ? (x_n,) : (x_n, x_nn)
         
         # Define the residual on the triangulation
-        res(x, y) = ∫( coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t) )dΩ
-        op = FEOperator(res, X, Y)
+        op = nothing
+        op_build_time = @elapsed begin
+            res(x, y) = ∫( coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t) )dΩ
+            op = FEOperator(res, X, Y)
+        end
+        if profile_steps
+            println("profile: step=$(step) operator_build_time=$(round(op_build_time, digits=3)) s")
+        end
         
         # Solve the nonlinear system
-        xh, _ = solve!(xh, solver, op)
+        solve_result = nothing
+        solve_time = @elapsed begin
+            solve_result = solve!(xh, solver, op)
+        end
+        if profile_steps
+            println("profile: step=$(step) solve_time=$(round(solve_time, digits=3)) s")
+        end
+        xh, _ = solve_result
         
         # Update time-history
         x_nn = x_n
@@ -152,14 +183,51 @@ function run_bioreactor_simulation(
         end
         
         # Diagnostic output
+        vtk_time = 0.0
         if write_vtk_interval > 0 && step % write_vtk_interval == 0
-            writevtk(get_triangulation(dΩ), "$(output_prefix)_$step", 
-                     cellfields=["u"=>xh[1], "p"=>xh[2], "phi"=>xh[3], "C"=>xh[4], "gamma"=>xh[5]])
+            vtk_time = @elapsed begin
+                writevtk(get_triangulation(dΩ), "$(output_prefix)_$step",
+                         cellfields=["u"=>xh[1], "p"=>xh[2], "phi"=>xh[3], "C"=>xh[4], "gamma"=>xh[5]])
+            end
+        end
+        if profile_steps && vtk_time > 0
+            println("profile: step=$(step) vtk_time=$(round(vtk_time, digits=3)) s")
+        end
+
+        if profile_steps
+            push!(step_profiles, (
+                step = step,
+                time = t,
+                order = order,
+                operator_build_time = op_build_time,
+                solve_time = solve_time,
+                vtk_time = vtk_time,
+            ))
         end
     end
     
     if collect_history
+        if profile_steps
+            return (
+                final_state = xh,
+                history = history,
+                times = times,
+                profile = (
+                    initial_setup_time = initial_setup_time,
+                    steps = step_profiles,
+                ),
+            )
+        end
         return (final_state=xh, history=history, times=times)
+    end
+    if profile_steps
+        return (
+            final_state = xh,
+            profile = (
+                initial_setup_time = initial_setup_time,
+                steps = step_profiles,
+            ),
+        )
     end
     return xh
 end

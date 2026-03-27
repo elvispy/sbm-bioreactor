@@ -1,5 +1,5 @@
 """
-    navier_stokes_weak_form(u, p, v, q, μ, ρ, f, u_drag=nothing, drag_coeff=0.0)
+    navier_stokes_weak_form(u, p, v, q, μ, ρ, f, u_drag=nothing, drag_coeff=0.0; include_convection=true)
 
 Compute the weak form of the incompressible Navier-Stokes equations with an optional 
 Hele-Shaw depth-averaged friction term (B.6 in Chao & Das 2015).
@@ -22,9 +22,10 @@ Hele-Shaw depth-averaged friction term (B.6 in Chao & Das 2015).
 6. `(drag_coeff * (u - u_drag) ⋅ v)`: Hele-Shaw drag representing the out-of-plane 
    viscous resistance in thin-gap bioreactors.
 """
-function navier_stokes_weak_form(u, p, v, q, μ, ρ, f, u_drag=nothing, drag_coeff=0.0)
+function navier_stokes_weak_form(u, p, v, q, μ, ρ, f, u_drag=nothing, drag_coeff=0.0; include_convection=true)
     # Standard Navier-Stokes terms: Advection + Diffusion - Pressure + Divergence Constraint - Forces
-    res = (ρ * (u ⋅ ∇(u)) ⋅ v) + (μ * ∇(u) ⊙ ∇(v)) - (p * (∇ ⋅ v)) + (q * (∇ ⋅ u)) - (f ⋅ v)
+    convection = include_convection ? (ρ * (u ⋅ ∇(u)) ⋅ v) : (0.0 * (μ * ∇(u) ⊙ ∇(v)))
+    res = convection + (μ * ∇(u) ⊙ ∇(v)) - (p * (∇ ⋅ v)) + (q * (∇ ⋅ u)) - (f ⋅ v)
     
     # Hele-Shaw Depth-Averaged Friction (B.6)
     # Models the viscous drag from the top and bottom plates in a 2D depth-averaged simulation.
@@ -112,5 +113,3 @@ function particle_flux(u, Φ, ∇Φ, μ, ∇μ, a, ρs, ρf, μf, Φavg, g, Γ, 
     
     return Jsc + Jsμ + Jst
 end
-
-
