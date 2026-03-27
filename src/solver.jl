@@ -218,6 +218,12 @@ function run_bioreactor_simulation(
     output_prefix="results",
     collect_history=false,
     profile_steps=false,
+    nonlinear_method=:newton,
+    nonlinear_iterations=1000,
+    nonlinear_show_trace=true,
+    nonlinear_xtol=0.0,
+    nonlinear_ftol=1.0e-8,
+    nonlinear_autoscale=false,
 )
     # Initial state interpolation
     x_n = nothing
@@ -229,8 +235,17 @@ function run_bioreactor_simulation(
     end
     x_nn = x_n # For BDF2, first step fallback to BDF1 logic
     
-    # Newton-Raphson solver with BackTracking line search for stability
-    nls = NLSolver(show_trace=true, method=:newton, linesearch=BackTracking())
+    nls_kwargs = (
+        show_trace = nonlinear_show_trace,
+        method = nonlinear_method,
+        iterations = nonlinear_iterations,
+        xtol = nonlinear_xtol,
+        ftol = nonlinear_ftol,
+        autoscale = nonlinear_autoscale,
+    )
+    nls = nonlinear_method == :newton ?
+        NLSolver(; nls_kwargs..., linesearch=BackTracking()) :
+        NLSolver(; nls_kwargs...)
     solver = FESolver(nls)
     
     xh = x_n
