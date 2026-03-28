@@ -392,6 +392,7 @@ function run_bioreactor_simulation(
     nonlinear_xtol=0.0,
     nonlinear_ftol=1.0e-8,
     nonlinear_autoscale=false,
+    max_order=2,
 )
     # Initial state interpolation
     x_n = nothing
@@ -426,7 +427,7 @@ function run_bioreactor_simulation(
         println("Step: $step, Time: $t")
         
         # Use BDF1 for the first step, BDF2 for subsequent steps
-        order = step == 1 ? 1 : 2
+        order = min(step == 1 ? 1 : 2, max_order)
         x_prevs = order == 1 ? (x_n,) : (x_n, x_nn)
         
         # Define the residual on the triangulation
