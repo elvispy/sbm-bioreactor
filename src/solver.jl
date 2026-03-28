@@ -1,4 +1,5 @@
 using Gridap
+import Gridap.Algebra
 using LineSearches: BackTracking
 using GridapSolvers
 using GridapSolvers.LinearSolvers
@@ -427,6 +428,88 @@ function _nonlinear_result_summary(cache)
     )
 end
 
+function _flatten_debug_values(x)
+    if x isa Number
+        return Float64[x]
+    elseif x isa AbstractArray
+        vals = Float64[]
+        for xi in x
+            append!(vals, _flatten_debug_values(xi))
+        end
+        return vals
+    else
+        try
+            return _flatten_debug_values(collect(x))
+        catch
+            return Float64[]
+        end
+    end
+end
+
+function _debug_value_stats(x)
+    vals = _flatten_debug_values(x)
+    return (
+        count = length(vals),
+        any_nan = any(isnan, vals),
+        any_inf = any(isinf, vals),
+        maxabs = isempty(vals) ? 0.0 : maximum(abs, vals),
+    )
+end
+
+struct DebugLinearSolver{S} <: Algebra.LinearSolver
+    solver::S
+    label::String
+end
+
+struct DebugLinearSolverSS{S,SS} <: Algebra.SymbolicSetup
+    solver::S
+    ss::SS
+end
+
+struct DebugLinearSolverNS{S,NS} <: Algebra.NumericalSetup
+    solver::S
+    ns::NS
+end
+
+function Algebra.symbolic_setup(solver::DebugLinearSolver, A::AbstractMatrix)
+    println("debug[$(solver.label)] symbolic_setup(A)=$( _debug_value_stats(A) )")
+    return DebugLinearSolverSS(solver, Algebra.symbolic_setup(solver.solver, A))
+end
+
+function Algebra.symbolic_setup(solver::DebugLinearSolver, A::AbstractMatrix, x)
+    println("debug[$(solver.label)] symbolic_setup(A,x): A=$( _debug_value_stats(A) ) x=$( _debug_value_stats(x) )")
+    return DebugLinearSolverSS(solver, Algebra.symbolic_setup(solver.solver, A, x))
+end
+
+function Algebra.numerical_setup(ss::DebugLinearSolverSS, A::AbstractMatrix)
+    println("debug[$(ss.solver.label)] numerical_setup(A)=$( _debug_value_stats(A) )")
+    return DebugLinearSolverNS(ss.solver, Algebra.numerical_setup(ss.ss, A))
+end
+
+function Algebra.numerical_setup(ss::DebugLinearSolverSS, A::AbstractMatrix, x)
+    println("debug[$(ss.solver.label)] numerical_setup(A,x): A=$( _debug_value_stats(A) ) x=$( _debug_value_stats(x) )")
+    return DebugLinearSolverNS(ss.solver, Algebra.numerical_setup(ss.ss, A, x))
+end
+
+function Algebra.numerical_setup!(ns::DebugLinearSolverNS, A::AbstractMatrix)
+    println("debug[$(ns.solver.label)] numerical_setup!(A)=$( _debug_value_stats(A) )")
+    Algebra.numerical_setup!(ns.ns, A)
+    return ns
+end
+
+function Algebra.numerical_setup!(ns::DebugLinearSolverNS, A::AbstractMatrix, x)
+    println("debug[$(ns.solver.label)] numerical_setup!(A,x): A=$( _debug_value_stats(A) ) x=$( _debug_value_stats(x) )")
+    Algebra.numerical_setup!(ns.ns, A, x)
+    return ns
+end
+
+function Algebra.solve!(x, ns::DebugLinearSolverNS, b)
+    println("debug[$(ns.solver.label)] solve!(before): x=$( _debug_value_stats(x) ) b=$( _debug_value_stats(b) )")
+    Algebra.solve!(x, ns.ns, b)
+    println("debug[$(ns.solver.label)] solve!(after): x=$( _debug_value_stats(x) )")
+    return x
+end
+
 """
     run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
@@ -463,6 +546,7 @@ function run_bioreactor_simulation(
     blocked_outer_solver=:fgmres,
     blocked_linear_outer_verbose=false,
     blocked_transport_verbose=false,
+    blocked_linear_debug=false,
 )
     # Initial state interpolation
     x_n = nothing
@@ -490,6 +574,9 @@ function run_bioreactor_simulation(
             transport_verbose=blocked_transport_verbose,
         ) :
         BackslashSolver()
+    if blocked_linear_debug
+        ls = DebugLinearSolver(ls, "blocked")
+    end
     nls = nonlinear_method == :newton ?
         NLSolver(ls; nls_kwargs..., linesearch=BackTracking()) :
         NLSolver(ls; nls_kwargs...)
