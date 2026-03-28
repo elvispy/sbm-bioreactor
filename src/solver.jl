@@ -1,5 +1,8 @@
 using Gridap
 using LineSearches: BackTracking
+using GridapSolvers
+using GridapSolvers.LinearSolvers
+using GridapSolvers.BlockSolvers
 
 function _supports_explicit_bdf1_case(params, order)
     order == 1 || return false
@@ -362,6 +365,37 @@ function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     return FEOperator(res, X, Y)
 end
 
+function _build_block_linear_solver(; transport_kind::Symbol=:lu)
+    flow_solver = LUSolver()
+    transport_solver = transport_kind == :lu ?
+        LUSolver() :
+        GMRESSolver(
+            20;
+            Pr=JacobiLinearSolver(),
+            maxiter=200,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=false,
+        )
+    blocks = [
+        LinearSystemBlock() LinearSystemBlock()
+        LinearSystemBlock() LinearSystemBlock()
+    ]
+    coeffs = [
+        1.0 1.0
+        0.0 1.0
+    ]
+    preconditioner = BlockTriangularSolver(blocks, [flow_solver, transport_solver], coeffs, :upper)
+    return FGMRESSolver(
+        20,
+        preconditioner;
+        maxiter=100,
+        atol=1.0e-12,
+        rtol=1.0e-8,
+        verbose=false,
+    )
+end
+
 """
     run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
@@ -393,6 +427,8 @@ function run_bioreactor_simulation(
     nonlinear_ftol=1.0e-8,
     nonlinear_autoscale=false,
     max_order=2,
+    blocked_linear_solver=false,
+    transport_block_solver=:lu,
 )
     # Initial state interpolation
     x_n = nothing
@@ -412,9 +448,10 @@ function run_bioreactor_simulation(
         ftol = nonlinear_ftol,
         autoscale = nonlinear_autoscale,
     )
+    ls = blocked_linear_solver ? _build_block_linear_solver(; transport_kind=transport_block_solver) : BackslashSolver()
     nls = nonlinear_method == :newton ?
-        NLSolver(; nls_kwargs..., linesearch=BackTracking()) :
-        NLSolver(; nls_kwargs...)
+        NLSolver(ls; nls_kwargs..., linesearch=BackTracking()) :
+        NLSolver(ls; nls_kwargs...)
     solver = FESolver(nls)
     
     xh = x_n
