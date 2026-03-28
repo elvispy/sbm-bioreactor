@@ -115,6 +115,7 @@ function main(; n=64, degree=2, dt=0.1)
     case, _, rhs, J = build_block_problem(; n=n, degree=degree, dt=dt)
     println((partition=case.metadata.partition, degree=case.metadata.degree, blocked=case.metadata.blocked, ndofs=num_free_dofs(case.X)))
     println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs))))
+    flush(stdout)
 
     for transport_kind in (:gmres_jacobi, :gmres_symgs, :gmres_richardson_symgs)
         try
@@ -128,10 +129,14 @@ function main(; n=64, degree=2, dt=0.1)
                 residual_norm=rnorm,
                 relative_residual=rnorm / rhsnorm,
             ))
+            flush(stdout)
         catch err
             println((solver="block_fgmres_upper", transport=String(transport_kind), error=sprint(showerror, err)))
+            flush(stdout)
         end
     end
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
