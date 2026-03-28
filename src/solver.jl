@@ -503,7 +503,7 @@ function Algebra.numerical_setup!(ns::DebugLinearSolverNS, A::AbstractMatrix, x)
     return ns
 end
 
-function Algebra.solve!(x, ns::DebugLinearSolverNS, b)
+function Algebra.solve!(x::AbstractVector, ns::DebugLinearSolverNS, b::AbstractVector)
     println("debug[$(ns.solver.label)] solve!(before): x=$( _debug_value_stats(x) ) b=$( _debug_value_stats(b) )")
     Algebra.solve!(x, ns.ns, b)
     println("debug[$(ns.solver.label)] solve!(after): x=$( _debug_value_stats(x) )")
