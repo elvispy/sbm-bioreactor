@@ -367,6 +367,7 @@ end
 
 function _build_block_linear_solver(;
     transport_kind::Symbol=:lu,
+    outer_kind::Symbol=:fgmres,
     outer_verbose::Bool=false,
     transport_verbose::Bool=false,
 )
@@ -390,14 +391,27 @@ function _build_block_linear_solver(;
         0.0 1.0
     ]
     preconditioner = BlockTriangularSolver(blocks, [flow_solver, transport_solver], coeffs, :upper)
-    return FGMRESSolver(
-        20,
-        preconditioner;
-        maxiter=100,
-        atol=1.0e-12,
-        rtol=1.0e-8,
-        verbose=outer_verbose,
-    )
+    if outer_kind == :gmres
+        return GMRESSolver(
+            20;
+            Pr=preconditioner,
+            maxiter=100,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=outer_verbose,
+        )
+    elseif outer_kind == :fgmres
+        return FGMRESSolver(
+            20,
+            preconditioner;
+            maxiter=100,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=outer_verbose,
+        )
+    else
+        error("Unsupported blocked outer solver kind: $outer_kind")
+    end
 end
 
 function _nonlinear_result_summary(cache)
@@ -446,6 +460,7 @@ function run_bioreactor_simulation(
     max_order=2,
     blocked_linear_solver=false,
     transport_block_solver=:lu,
+    blocked_outer_solver=:fgmres,
     blocked_linear_outer_verbose=false,
     blocked_transport_verbose=false,
 )
@@ -470,6 +485,7 @@ function run_bioreactor_simulation(
     ls = blocked_linear_solver ?
         _build_block_linear_solver(;
             transport_kind=transport_block_solver,
+            outer_kind=blocked_outer_solver,
             outer_verbose=blocked_linear_outer_verbose,
             transport_verbose=blocked_transport_verbose,
         ) :
