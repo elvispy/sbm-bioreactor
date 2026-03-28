@@ -42,7 +42,15 @@ function sample_scalar_field(field; radius, n=121)
     values = Matrix{Float64}(undef, length(ys), length(xs))
     for (j, y) in enumerate(ys), (i, x) in enumerate(xs)
         if x^2 + y^2 <= radius^2 + 1e-12
-            values[j, i] = field(Point(x, y))
+            values[j, i] = try
+                field(Point(x, y))
+            catch err
+                if err isa AssertionError
+                    NaN
+                else
+                    rethrow(err)
+                end
+            end
         else
             values[j, i] = NaN
         end
