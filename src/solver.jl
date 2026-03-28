@@ -396,6 +396,19 @@ function _build_block_linear_solver(; transport_kind::Symbol=:lu)
     )
 end
 
+function _nonlinear_result_summary(cache)
+    hasproperty(cache, :result) || return nothing
+    r = getproperty(cache, :result)
+    return (
+        method = hasproperty(r, :method) ? getproperty(r, :method) : nothing,
+        iterations = hasproperty(r, :iterations) ? getproperty(r, :iterations) : nothing,
+        x_converged = hasproperty(r, :x_converged) ? getproperty(r, :x_converged) : nothing,
+        f_converged = hasproperty(r, :f_converged) ? getproperty(r, :f_converged) : nothing,
+        xtol = hasproperty(r, :xtol) ? getproperty(r, :xtol) : nothing,
+        ftol = hasproperty(r, :ftol) ? getproperty(r, :ftol) : nothing,
+    )
+end
+
 """
     run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
@@ -478,13 +491,19 @@ function run_bioreactor_simulation(
         
         # Solve the nonlinear system
         solve_result = nothing
+        solve_cache = nothing
         solve_time = @elapsed begin
             solve_result = solve!(xh, solver, op)
         end
+        solve_cache = solve_result[2]
         if profile_steps
             println("profile: step=$(step) solve_time=$(round(solve_time, digits=3)) s")
         end
         xh, _ = solve_result
+        nonlinear_summary = profile_steps ? _nonlinear_result_summary(solve_cache) : nothing
+        if profile_steps && !isnothing(nonlinear_summary)
+            println("profile: step=$(step) nonlinear=$(nonlinear_summary)")
+        end
         
         # Update time-history
         x_nn = x_n
@@ -514,6 +533,7 @@ function run_bioreactor_simulation(
                 operator_build_time = op_build_time,
                 solve_time = solve_time,
                 vtk_time = vtk_time,
+                nonlinear = nonlinear_summary,
             ))
         end
     end
