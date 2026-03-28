@@ -365,7 +365,11 @@ function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     return FEOperator(res, X, Y)
 end
 
-function _build_block_linear_solver(; transport_kind::Symbol=:lu)
+function _build_block_linear_solver(;
+    transport_kind::Symbol=:lu,
+    outer_verbose::Bool=false,
+    transport_verbose::Bool=false,
+)
     flow_solver = LUSolver()
     transport_solver = transport_kind == :lu ?
         LUSolver() :
@@ -375,7 +379,7 @@ function _build_block_linear_solver(; transport_kind::Symbol=:lu)
             maxiter=200,
             atol=1.0e-12,
             rtol=1.0e-8,
-            verbose=false,
+            verbose=transport_verbose,
         )
     blocks = [
         LinearSystemBlock() LinearSystemBlock()
@@ -392,7 +396,7 @@ function _build_block_linear_solver(; transport_kind::Symbol=:lu)
         maxiter=100,
         atol=1.0e-12,
         rtol=1.0e-8,
-        verbose=false,
+        verbose=outer_verbose,
     )
 end
 
@@ -442,6 +446,8 @@ function run_bioreactor_simulation(
     max_order=2,
     blocked_linear_solver=false,
     transport_block_solver=:lu,
+    blocked_linear_outer_verbose=false,
+    blocked_transport_verbose=false,
 )
     # Initial state interpolation
     x_n = nothing
@@ -461,7 +467,13 @@ function run_bioreactor_simulation(
         ftol = nonlinear_ftol,
         autoscale = nonlinear_autoscale,
     )
-    ls = blocked_linear_solver ? _build_block_linear_solver(; transport_kind=transport_block_solver) : BackslashSolver()
+    ls = blocked_linear_solver ?
+        _build_block_linear_solver(;
+            transport_kind=transport_block_solver,
+            outer_verbose=blocked_linear_outer_verbose,
+            transport_verbose=blocked_transport_verbose,
+        ) :
+        BackslashSolver()
     nls = nonlinear_method == :newton ?
         NLSolver(ls; nls_kwargs..., linesearch=BackTracking()) :
         NLSolver(ls; nls_kwargs...)
