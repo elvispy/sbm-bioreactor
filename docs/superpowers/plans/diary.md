@@ -17,3 +17,11 @@
 - Operator build stays cheap at large meshes.
 - Solve phase now dominates large-mesh runtime.
 - Next focus: linear algebra and preconditioning.
+
+## 2026-03-28
+
+- Blocked nonlinear Krylov `NaN` traced to poisoned iterate.
+- Explicit zeroing fixed blocked live nonlinear solves.
+- Warm full-physics `12x12` blocked `GMRES` step took `0.546 s`.
+- Warm tutorial-equivalent four-step run now completes.
+- Future usability note: prefer persistent kernel or sysimage.
