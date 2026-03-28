@@ -38,7 +38,9 @@ end
 
 
 function build_transport_solver(kind::Symbol)
-    if kind == :gmres_jacobi
+    if kind == :lu
+        return LUSolver()
+    elseif kind == :gmres_jacobi
         return GMRESSolver(
             20;
             Pr=JacobiLinearSolver(),
@@ -117,7 +119,7 @@ function main(; n=64, degree=2, dt=0.1)
     println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs))))
     flush(stdout)
 
-    for transport_kind in (:gmres_jacobi, :gmres_symgs, :gmres_richardson_symgs)
+    for transport_kind in (:lu, :gmres_jacobi, :gmres_symgs, :gmres_richardson_symgs)
         try
             x_block, t_block = solve_block_iterative(J, rhs; transport_kind=transport_kind)
             rnorm, rhsnorm = residual_metrics(J, x_block, rhs)
