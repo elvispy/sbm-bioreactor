@@ -5,6 +5,7 @@ using GridapSolvers
 using GridapSolvers.LinearSolvers
 using GridapSolvers.BlockSolvers
 using LinearAlgebra
+using BlockArrays: blocksizes
 
 function build_block_problem(; n=64, degree=2, dt=0.1)
     case = build_harv_2d_case(
