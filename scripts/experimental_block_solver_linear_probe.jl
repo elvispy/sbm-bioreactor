@@ -36,14 +36,6 @@ function build_block_problem(; n=64, degree=2, dt=0.1)
     return case, x0, rhs, J
 end
 
-function solve_direct(J, rhs)
-    solver = LUSolver()
-    ns = numerical_setup(symbolic_setup(solver, J), J)
-    x = allocate_in_domain(J)
-    fill!(x, 0.0)
-    t = @elapsed solve!(x, ns, rhs)
-    return x, t
-end
 
 function build_block_preconditioner(J)
     flow_solver = LUSolver()
@@ -88,9 +80,6 @@ function main(; n=64, degree=2, dt=0.1)
     case, _, rhs, J = build_block_problem(; n=n, degree=degree, dt=dt)
     println((partition=case.metadata.partition, degree=case.metadata.degree, blocked=case.metadata.blocked, ndofs=num_free_dofs(case.X)))
     println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs))))
-
-    x_direct, t_direct = solve_direct(J, rhs)
-    println((solver="direct_block_lu", time=t_direct, xnorm=norm(x_direct)))
 
     try
         x_block, t_block = solve_block_iterative(J, rhs)
