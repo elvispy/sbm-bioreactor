@@ -5,7 +5,6 @@ using GridapSolvers
 using GridapSolvers.LinearSolvers
 using GridapSolvers.BlockSolvers
 using LinearAlgebra
-using BlockArrays: blocksizes
 
 function build_block_problem(; n=64, degree=2, dt=0.1)
     case = build_harv_2d_case(
@@ -88,7 +87,7 @@ end
 function main(; n=64, degree=2, dt=0.1)
     case, _, rhs, J = build_block_problem(; n=n, degree=degree, dt=dt)
     println((partition=case.metadata.partition, degree=case.metadata.degree, blocked=case.metadata.blocked, ndofs=num_free_dofs(case.X)))
-    println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs)), block_rows=blocksizes(J, 1), block_cols=blocksizes(J, 2)))
+    println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs))))
 
     x_direct, t_direct = solve_direct(J, rhs)
     println((solver="direct_block_lu", time=t_direct, xnorm=norm(x_direct)))
