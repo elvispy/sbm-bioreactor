@@ -1,6 +1,9 @@
 using SBM_Bioreactor
 using Gridap
 using Gridap.Algebra
+using GridapSolvers
+using GridapSolvers.LinearSolvers
+using GridapSolvers.BlockSolvers
 
 function flatten_values(x)
     if x isa Number
@@ -30,6 +33,28 @@ function stats(x)
     )
 end
 
+function build_block_solver()
+    flow_solver = LUSolver()
+    transport_solver = LUSolver()
+    blocks = [
+        LinearSystemBlock() LinearSystemBlock()
+        LinearSystemBlock() LinearSystemBlock()
+    ]
+    coeffs = [
+        1.0 1.0
+        0.0 1.0
+    ]
+    preconditioner = BlockTriangularSolver(blocks, [flow_solver, transport_solver], coeffs, :upper)
+    return FGMRESSolver(
+        20,
+        preconditioner;
+        maxiter = 100,
+        atol = 1.0e-12,
+        rtol = 1.0e-8,
+        verbose = false,
+    )
+end
+
 function main()
     case = build_harv_2d_case(
         partition = (12, 12),
@@ -53,6 +78,7 @@ function main()
         [params.u0, params.p0, params.Φ0, params.C0, params.Γ0],
         case.X,
     )
+    xfree = get_free_dof_values(x0)
     op = SBM_Bioreactor.build_bioreactor_operator(
         case.X,
         case.Y,
@@ -67,9 +93,29 @@ function main()
     println((rhs_type = typeof(r), matrix_type = typeof(J)))
     println((rhs_stats = stats(r), J_stats = stats(J)))
     for i in 1:2, j in 1:2
-        blk = J.array[i, j]
+        blk = getfield(J, :blocks)[i, j]
         println((index = (i, j), type = typeof(blk), stats = stats(blk)))
     end
+    for i in 1:2
+        b = getfield(r, :blocks)[i]
+        println((rhs_block = i, type = typeof(b), stats = stats(b)))
+    end
+
+    solver = build_block_solver()
+
+    ss_plain = symbolic_setup(solver, J)
+    ns_plain = numerical_setup(ss_plain, J)
+    y_plain = allocate_in_domain(J)
+    fill!(y_plain, 0.0)
+    solve!(y_plain, ns_plain, r)
+    println((plain_setup_solution_stats = stats(y_plain)))
+
+    ss_x = symbolic_setup(solver, J, xfree)
+    ns_x = numerical_setup(ss_x, J, xfree)
+    y_x = allocate_in_domain(J)
+    fill!(y_x, 0.0)
+    solve!(y_x, ns_x, r)
+    println((x_setup_solution_stats = stats(y_x)))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
