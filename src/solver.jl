@@ -471,6 +471,20 @@ struct DebugLinearSolverNS{S,NS} <: Algebra.NumericalSetup
     ns::NS
 end
 
+struct ZeroedInitialGuessLinearSolver{S} <: Algebra.LinearSolver
+    solver::S
+end
+
+struct ZeroedInitialGuessLinearSolverSS{S,SS} <: Algebra.SymbolicSetup
+    solver::S
+    ss::SS
+end
+
+struct ZeroedInitialGuessLinearSolverNS{S,NS} <: Algebra.NumericalSetup
+    solver::S
+    ns::NS
+end
+
 function Algebra.symbolic_setup(solver::DebugLinearSolver, A::AbstractMatrix)
     println("debug[$(solver.label)] symbolic_setup(A)=$( _debug_value_stats(A) )")
     return DebugLinearSolverSS(solver, Algebra.symbolic_setup(solver.solver, A))
@@ -507,6 +521,53 @@ function Algebra.solve!(x::AbstractVector, ns::DebugLinearSolverNS, b::AbstractV
     println("debug[$(ns.solver.label)] solve!(before): x=$( _debug_value_stats(x) ) b=$( _debug_value_stats(b) )")
     Algebra.solve!(x, ns.ns, b)
     println("debug[$(ns.solver.label)] solve!(after): x=$( _debug_value_stats(x) )")
+    return x
+end
+
+function _zero_linear_iterate!(x)
+    if x isa AbstractArray
+        fill!(x, zero(eltype(x)))
+    else
+        try
+            for blk in x.blocks
+                _zero_linear_iterate!(blk)
+            end
+        catch
+            fill!(x, zero(eltype(x)))
+        end
+    end
+    return x
+end
+
+function Algebra.symbolic_setup(solver::ZeroedInitialGuessLinearSolver, A::AbstractMatrix)
+    return ZeroedInitialGuessLinearSolverSS(solver, Algebra.symbolic_setup(solver.solver, A))
+end
+
+function Algebra.symbolic_setup(solver::ZeroedInitialGuessLinearSolver, A::AbstractMatrix, x)
+    return ZeroedInitialGuessLinearSolverSS(solver, Algebra.symbolic_setup(solver.solver, A, x))
+end
+
+function Algebra.numerical_setup(ss::ZeroedInitialGuessLinearSolverSS, A::AbstractMatrix)
+    return ZeroedInitialGuessLinearSolverNS(ss.solver, Algebra.numerical_setup(ss.ss, A))
+end
+
+function Algebra.numerical_setup(ss::ZeroedInitialGuessLinearSolverSS, A::AbstractMatrix, x)
+    return ZeroedInitialGuessLinearSolverNS(ss.solver, Algebra.numerical_setup(ss.ss, A, x))
+end
+
+function Algebra.numerical_setup!(ns::ZeroedInitialGuessLinearSolverNS, A::AbstractMatrix)
+    Algebra.numerical_setup!(ns.ns, A)
+    return ns
+end
+
+function Algebra.numerical_setup!(ns::ZeroedInitialGuessLinearSolverNS, A::AbstractMatrix, x)
+    Algebra.numerical_setup!(ns.ns, A, x)
+    return ns
+end
+
+function Algebra.solve!(x::AbstractVector, ns::ZeroedInitialGuessLinearSolverNS, b::AbstractVector)
+    _zero_linear_iterate!(x)
+    Algebra.solve!(x, ns.ns, b)
     return x
 end
 
@@ -576,6 +637,9 @@ function run_bioreactor_simulation(
         BackslashSolver()
     if blocked_linear_debug
         ls = DebugLinearSolver(ls, "blocked")
+    end
+    if blocked_linear_solver
+        ls = ZeroedInitialGuessLinearSolver(ls)
     end
     nls = nonlinear_method == :newton ?
         NLSolver(ls; nls_kwargs..., linesearch=BackTracking()) :
