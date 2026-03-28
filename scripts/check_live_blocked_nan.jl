@@ -108,14 +108,14 @@ function main()
     y_plain = allocate_in_domain(J)
     fill!(y_plain, 0.0)
     solve!(y_plain, ns_plain, r)
-    println((plain_setup_solution_stats = stats(y_plain)))
+    println((plain_setup_solution_stats = stats(y_plain),))
 
     ss_x = symbolic_setup(solver, J, xfree)
     ns_x = numerical_setup(ss_x, J, xfree)
     y_x = allocate_in_domain(J)
     fill!(y_x, 0.0)
     solve!(y_x, ns_x, r)
-    println((x_setup_solution_stats = stats(y_x)))
+    println((x_setup_solution_stats = stats(y_x),))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
