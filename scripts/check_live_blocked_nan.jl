@@ -4,6 +4,7 @@ using Gridap.Algebra
 using GridapSolvers
 using GridapSolvers.LinearSolvers
 using GridapSolvers.BlockSolvers
+using LinearAlgebra
 
 function flatten_values(x)
     if x isa Number
@@ -109,6 +110,11 @@ function main()
     fill!(y_plain, 0.0)
     solve!(y_plain, ns_plain, r)
     println((plain_setup_solution_stats = stats(y_plain),))
+    Jy_plain = allocate_in_range(J)
+    fill!(Jy_plain, 0.0)
+    mul!(Jy_plain, J, y_plain)
+    println((plain_setup_norms = (rhs = norm(r), y = norm(y_plain), Jy = norm(Jy_plain)),))
+    println((plain_setup_matvec_stats = stats(Jy_plain),))
 
     ss_x = symbolic_setup(solver, J, xfree)
     ns_x = numerical_setup(ss_x, J, xfree)
@@ -116,6 +122,11 @@ function main()
     fill!(y_x, 0.0)
     solve!(y_x, ns_x, r)
     println((x_setup_solution_stats = stats(y_x),))
+    Jy_x = allocate_in_range(J)
+    fill!(Jy_x, 0.0)
+    mul!(Jy_x, J, y_x)
+    println((x_setup_norms = (rhs = norm(r), y = norm(y_x), Jy = norm(Jy_x)),))
+    println((x_setup_matvec_stats = stats(Jy_x),))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
