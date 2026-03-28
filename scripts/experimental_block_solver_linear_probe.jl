@@ -37,16 +37,42 @@ function build_block_problem(; n=64, degree=2, dt=0.1)
 end
 
 
-function build_block_preconditioner(J)
+function build_transport_solver(kind::Symbol)
+    if kind == :gmres_jacobi
+        return GMRESSolver(
+            20;
+            Pr=JacobiLinearSolver(),
+            maxiter=200,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=false,
+        )
+    elseif kind == :gmres_symgs
+        return GMRESSolver(
+            20;
+            Pr=LinearSolverFromSmoother(SymGaussSeidelSmoother(2, 1.0)),
+            maxiter=200,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=false,
+        )
+    elseif kind == :gmres_richardson_symgs
+        return GMRESSolver(
+            20;
+            Pr=RichardsonSmoother(SymGaussSeidelSmoother(1, 1.0), 3, 0.8),
+            maxiter=200,
+            atol=1.0e-12,
+            rtol=1.0e-8,
+            verbose=false,
+        )
+    else
+        error("unsupported transport solver kind: $kind")
+    end
+end
+
+function build_block_preconditioner(J; transport_kind::Symbol=:gmres_jacobi)
     flow_solver = LUSolver()
-    transport_solver = GMRESSolver(
-        20;
-        Pr=JacobiLinearSolver(),
-        maxiter=200,
-        atol=1.0e-12,
-        rtol=1.0e-8,
-        verbose=false,
-    )
+    transport_solver = build_transport_solver(transport_kind)
     blocks = [
         LinearSystemBlock() LinearSystemBlock()
         LinearSystemBlock() LinearSystemBlock()
@@ -68,12 +94,21 @@ function build_block_preconditioner(J)
     return solver, ns
 end
 
-function solve_block_iterative(J, rhs)
-    _, ns = build_block_preconditioner(J)
+function solve_block_iterative(J, rhs; transport_kind::Symbol=:gmres_jacobi)
+    _, ns = build_block_preconditioner(J; transport_kind=transport_kind)
     x = allocate_in_domain(J)
     fill!(x, 0.0)
     t = @elapsed solve!(x, ns, rhs)
     return x, t
+end
+
+function residual_metrics(J, x, rhs)
+    Ax = allocate_in_range(J)
+    mul!(Ax, J, x)
+    r = similar(rhs)
+    copy!(r, rhs)
+    r .-= Ax
+    return norm(r), norm(rhs)
 end
 
 function main(; n=64, degree=2, dt=0.1)
@@ -81,11 +116,21 @@ function main(; n=64, degree=2, dt=0.1)
     println((partition=case.metadata.partition, degree=case.metadata.degree, blocked=case.metadata.blocked, ndofs=num_free_dofs(case.X)))
     println((matrix_type=string(typeof(J)), rhs_type=string(typeof(rhs))))
 
-    try
-        x_block, t_block = solve_block_iterative(J, rhs)
-        println((solver="block_fgmres_upper", time=t_block, xnorm=norm(x_block)))
-    catch err
-        println((solver="block_fgmres_upper", error=sprint(showerror, err)))
+    for transport_kind in (:gmres_jacobi, :gmres_symgs, :gmres_richardson_symgs)
+        try
+            x_block, t_block = solve_block_iterative(J, rhs; transport_kind=transport_kind)
+            rnorm, rhsnorm = residual_metrics(J, x_block, rhs)
+            println((
+                solver="block_fgmres_upper",
+                transport=String(transport_kind),
+                time=t_block,
+                xnorm=norm(x_block),
+                residual_norm=rnorm,
+                relative_residual=rnorm / rhsnorm,
+            ))
+        catch err
+            println((solver="block_fgmres_upper", transport=String(transport_kind), error=sprint(showerror, err)))
+        end
     end
 end
 
