@@ -2,6 +2,8 @@ using Test
 using Gridap
 using SBM_Bioreactor
 
+@info "Running slow solver tests"
+
 function easy_manual_jacobian_test(x, x_prevs, dx, y, dt, params, order=1, t=0.0)
     order == 1 || error("test helper only supports BDF1")
 
@@ -54,7 +56,7 @@ function easy_manual_jacobian_test(x, x_prevs, dx, y, dt, params, order=1, t=0.0
     return jac_ns + jac_phi + jac_C + jac_gamma
 end
 
-@testset "Coupled Solver Residual" begin
+@testset "Coupled Solver Slow Coverage" begin
     domain = (0, 1, 0, 1)
     partition = (4, 4)
     model = CartesianDiscreteModel(domain, partition)
@@ -214,6 +216,14 @@ end
     full_explicit_params = merge(case.params, (use_explicit_jacobian=true,))
     full_explicit_op = SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, full_explicit_params, 1, case.metadata.dt)
     @test full_explicit_op isa Gridap.FESpaces.FEOperator
+
+    lu_block_solver = SBM_Bioreactor._build_block_linear_solver(transport_kind=:lu, outer_kind=:gmres)
+    @test lu_block_solver isa Gridap.Algebra.LinearSolver
+
+    gmres_block_solver = SBM_Bioreactor._build_block_linear_solver(transport_kind=:gmres, outer_kind=:gmres)
+    @test gmres_block_solver isa Gridap.Algebra.LinearSolver
+
+    @test_throws ErrorException SBM_Bioreactor._build_block_linear_solver(transport_kind=:does_not_exist, outer_kind=:gmres)
 
     unsupported_params = merge(case.params, (use_explicit_jacobian=true,))
     @test_throws ErrorException SBM_Bioreactor.build_bioreactor_operator(case.X, case.Y, case.dΩ, x0_prevs, case.metadata.dt, unsupported_params, 2, case.metadata.dt)

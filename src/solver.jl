@@ -366,16 +366,19 @@ function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     return FEOperator(res, X, Y)
 end
 
-function _build_block_linear_solver(;
-    transport_kind::Symbol=:lu,
-    outer_kind::Symbol=:fgmres,
-    outer_verbose::Bool=false,
-    transport_verbose::Bool=false,
-)
-    flow_solver = LUSolver()
-    transport_solver = transport_kind == :lu ?
-        LUSolver() :
-        GMRESSolver(
+function _supported_transport_solver_kinds()
+    return (:lu, :gmres)
+end
+
+function _build_flow_linear_solver()
+    return LUSolver()
+end
+
+function _build_transport_linear_solver(transport_kind::Symbol; transport_verbose::Bool=false)
+    if transport_kind == :lu
+        return LUSolver()
+    elseif transport_kind == :gmres
+        return GMRESSolver(
             20;
             Pr=JacobiLinearSolver(),
             maxiter=200,
@@ -383,6 +386,19 @@ function _build_block_linear_solver(;
             rtol=1.0e-8,
             verbose=transport_verbose,
         )
+    end
+    kinds = join(string.(collect(_supported_transport_solver_kinds())), ", ")
+    error("Unsupported transport solver kind: $(transport_kind). Supported kinds: $(kinds)")
+end
+
+function _build_block_linear_solver(;
+    transport_kind::Symbol=:lu,
+    outer_kind::Symbol=:fgmres,
+    outer_verbose::Bool=false,
+    transport_verbose::Bool=false,
+)
+    flow_solver = _build_flow_linear_solver()
+    transport_solver = _build_transport_linear_solver(transport_kind; transport_verbose=transport_verbose)
     blocks = [
         LinearSystemBlock() LinearSystemBlock()
         LinearSystemBlock() LinearSystemBlock()

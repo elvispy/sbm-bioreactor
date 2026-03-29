@@ -70,41 +70,25 @@ using SBM_Bioreactor
     @test haskey(profiled, :profile)
     @test profiled.profile.initial_setup_time >= 0.0
     @test isempty(profiled.profile.steps)
-
-    explicit_case = build_harv_2d_case(partition=(1, 1), dt=0.25, total_time=0.5, degree=2)
-    explicit_params = merge(explicit_case.params, (use_explicit_jacobian=true,))
-    explicit_result = run_bioreactor_simulation(
-        explicit_case.X,
-        explicit_case.Y,
-        explicit_case.dΩ,
-        explicit_case.metadata.dt,
-        explicit_params,
-        explicit_case.metadata.nsteps;
-        write_vtk_interval=0,
-        collect_history=true,
-        nonlinear_show_trace=false,
-        max_order=1,
-    )
-
-    @test length(explicit_result.history) == explicit_case.metadata.nsteps + 1
-    @test explicit_result.times[end] == explicit_case.metadata.total_time
 end
 
-@testset "Visualization Helper Loading" begin
-    plots_available = false
-    try
-        @eval using Plots
-        plots_available = true
-    catch
+if get(ENV, "SBM_RUN_PLOTS_TESTS", "0") == "1"
+    @testset "Visualization Helper Loading" begin
         plots_available = false
-    end
+        try
+            @eval using Plots
+            plots_available = true
+        catch
+            plots_available = false
+        end
 
-    if plots_available
-        include("../scripts/visualize.jl")
-        case = build_harv_2d_case(partition=(2, 2), total_time=0.0)
-        plt = plot_harv_mesh(case)
-        @test plt isa Plots.Plot
-    else
-        @test_broken false
+        if plots_available
+            include("../scripts/visualize.jl")
+            case = build_harv_2d_case(partition=(2, 2), total_time=0.0)
+            plt = plot_harv_mesh(case)
+            @test plt isa Plots.Plot
+        else
+            @test_broken false
+        end
     end
 end

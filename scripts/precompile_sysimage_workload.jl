@@ -24,7 +24,7 @@ function run_workload()
         blocked_linear_solver = true,
         blocked_outer_solver = :gmres,
         transport_block_solver = :lu,
-        profile_steps = false,
+        profile_steps = true,
     )
 
     @assert !isempty(result.profile.steps)

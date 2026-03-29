@@ -31,3 +31,6 @@
 - Warm blocked `GMRES` beat direct by `128x128`.
 - Cold startup still dominates first blocked run.
 - Added reproducible sysimage build and workload scripts.
+- Split default tests into fast and opt-in slow tiers.
+- Plot and scientific regression tests are no longer always-on.
+- Added a dedicated fast-test entrypoint for warmed/sysimage runs.
