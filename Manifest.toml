@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "5e0408f7fb5f670122d63f14a18f66e84bb0b360"
+project_hash = "32b976282b3ea0e42e12492b05d32142cd857bd7"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -654,6 +654,11 @@ git-tree-sha1 = "24f6def62397474a297bfcec22384101609142ed"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
 version = "2.86.3+0"
 
+[[deps.Glob]]
+git-tree-sha1 = "83cb0092e2792b9e3a865b6655e88f5b862607e2"
+uuid = "c27321d9-0574-5035-807b-f59d2c89b15c"
+version = "1.4.0"
+
 [[deps.Graphite2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "8a6dbda1fd736d60cc477d99f2e7a042acfa46e8"
@@ -1248,6 +1253,12 @@ git-tree-sha1 = "e67be069aea02ce689bd94eb3f7ee011396bf1bd"
 uuid = "8fa3689e-f0b9-5420-9873-adf6ccf46f2d"
 version = "3.22.0+0"
 
+[[deps.PackageCompiler]]
+deps = ["Artifacts", "Glob", "LazyArtifacts", "Libdl", "Pkg", "Printf", "RelocatableFolders", "TOML", "UUIDs", "p7zip_jll"]
+git-tree-sha1 = "7b2dbae3d0eda41dad445b5f36f40588c208a942"
+uuid = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
+version = "2.2.5"
+
 [[deps.Pango_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "0662b083e11420952f2e62e17eddae7fc07d5997"
@@ -1441,7 +1452,7 @@ uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.SBM_Bioreactor]]
-deps = ["Gridap", "GridapGmsh", "GridapPETSc", "GridapSolvers", "IJulia", "LineSearches", "Plots", "Test"]
+deps = ["Gridap", "GridapGmsh", "GridapPETSc", "GridapSolvers", "IJulia", "LineSearches", "PackageCompiler", "Plots", "Test"]
 path = "."
 uuid = "0ea9b2ef-5af9-4974-a40f-5f7a103bf293"
 version = "0.0.0"

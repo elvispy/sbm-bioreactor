@@ -25,3 +25,9 @@
 - Warm full-physics `12x12` blocked `GMRES` step took `0.546 s`.
 - Warm tutorial-equivalent four-step run now completes.
 - Future usability note: prefer persistent kernel or sysimage.
+
+## 2026-03-29
+
+- Warm blocked `GMRES` beat direct by `128x128`.
+- Cold startup still dominates first blocked run.
+- Added reproducible sysimage build and workload scripts.
