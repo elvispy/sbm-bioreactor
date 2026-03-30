@@ -5,6 +5,26 @@ using GridapSolvers
 using GridapSolvers.LinearSolvers
 using GridapSolvers.BlockSolvers
 
+#
+# Solver file map
+# ----------------
+# 1. Constitutive and derivative helpers used by the explicit BDF1 Jacobian.
+# 2. Monolithic residual and explicit Jacobian assembly for the 5-field system.
+# 3. Operator and linear-solver builders.
+# 4. Debug / safety wrappers for blocked Krylov solves.
+# 5. Time-stepping driver `run_bioreactor_simulation`.
+#
+# The core unknown ordering is always `(u, p, Φ, C, Γ)`.
+# - `u, p` are the flow variables.
+# - `Φ, C` are the transported scalars.
+# - `Γ` is a projected shear-rate field introduced to avoid second derivatives
+#   in the migration flux terms.
+#
+
+# -----------------------------------------------------------------------------
+# Constitutive and derivative helpers for the explicit BDF1 Jacobian
+# -----------------------------------------------------------------------------
+
 function _supports_explicit_bdf1_case(params, order)
     order == 1 || return false
     get(params, :use_explicit_jacobian, false) || return false
@@ -15,6 +35,11 @@ function _get_param(params, name, default)
     hasproperty(params, name) ? getproperty(params, name) : default
 end
 
+"""
+    _shear_rate_directional_derivative(u, du)
+
+Return the directional derivative of `Γ = shear_rate(u)` in the direction `du`.
+"""
 function _shear_rate_directional_derivative(u, du)
     shear_arg = 2.0 * ε(u) ⊙ ε(u)
     dshear_arg = 4.0 * ε(u) ⊙ ε(du)
@@ -36,6 +61,14 @@ function _krieger_viscosity_second_derivative(phi, μf, Φmax)
     return prefactor * (1.0 - phi / Φmax)^exponent
 end
 
+"""
+    _viscosity_terms(Φ, dΦ, params; freeze_viscosity=false)
+
+Return `(μ, dμ, ∇μ, d∇μ)` for the current concentration field.
+
+When `freeze_viscosity=true`, the constitutive response collapses to constant
+`μf`, which is useful for ablations and simpler preconditioner models.
+"""
 function _viscosity_terms(Φ, dΦ, params; freeze_viscosity=false)
     μf = params.μf
     Φmax = params.Φmax
@@ -64,6 +97,12 @@ function _sedimentation_velocity_frozen(params)
     return (1.0 - Φavg) * (2.0 * a^2 * (ρs - ρf) / (9.0 * μf)) * params.g
 end
 
+"""
+    _particle_flux_directional_derivative(Φ, Γ, dΦ, dΓ, params; freeze_viscosity=false)
+
+Linearize the full SBM migration flux with respect to the transport variables
+`Φ` and `Γ`.
+"""
 function _particle_flux_directional_derivative(Φ, Γ, dΦ, dΓ, params; freeze_viscosity=false)
     a = params.a
     ∇ΓΦ = Γ * ∇(Φ) + Φ * ∇(Γ)
@@ -102,11 +141,22 @@ function _navier_stokes_convection_jacobian(u, du, v, ρ, dρ)
     return (dρ * convective_state) + (ρ * ((du ⋅ ∇(u)) ⋅ v)) + (ρ * ((u ⋅ ∇(du)) ⋅ v))
 end
 
+"""
+    _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
+
+Explicit BDF1 Jacobian contribution for the `Γ` projection equation.
+"""
 function _gamma_jacobian_bdf1(u, du, dΓ, v_γ)
     dshear = _shear_rate_directional_derivative(u, du)
     return v_γ * (dΓ - dshear)
 end
 
+"""
+    _momentum_jacobian_bdf1(...)
+
+Explicit BDF1 Jacobian block for the momentum / pressure part of the monolithic
+system.
+"""
 function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; include_convection=true, freeze_viscosity=false)
     μf = params.μf
     ρs = params.ρs
@@ -136,6 +186,11 @@ function _momentum_jacobian_bdf1(u, p, Φ, du, dp, dΦ, v, q, u_n, dt, params; i
     return jac
 end
 
+"""
+    _continuity_jacobian_bdf1(Φ, Γ, dΦ, dΓ, q, params; ...)
+
+Explicit BDF1 Jacobian block for the modified continuity equation.
+"""
 function _continuity_jacobian_bdf1(Φ, Γ, dΦ, dΓ, q, params; enable_particle_flux=false, freeze_viscosity=false)
     if !enable_particle_flux
         return 0.0 * (dΦ * q)
@@ -146,6 +201,11 @@ function _continuity_jacobian_bdf1(Φ, Γ, dΦ, dΓ, q, params; enable_particle_
     return ∇(q) ⋅ (dflux * flux_coeff)
 end
 
+"""
+    _phi_jacobian_bdf1(...)
+
+Explicit BDF1 Jacobian block for the particle volume-fraction equation.
+"""
 function _phi_jacobian_bdf1(u, Φ, C, Γ, du, dΦ, dC, dΓ, w, u_n, Φ_n, dt, params, t; enable_growth_source=true, enable_particle_flux=false, freeze_viscosity=false)
     _ = u_n
     _ = Φ_n
@@ -171,6 +231,11 @@ function _phi_jacobian_bdf1(u, Φ, C, Γ, du, dΦ, dC, dΓ, w, u_n, Φ_n, dt, pa
     return jac
 end
 
+"""
+    _nutrient_jacobian_bdf1(...)
+
+Explicit BDF1 Jacobian block for the nutrient transport equation.
+"""
 function _nutrient_jacobian_bdf1(u, Φ, C, du, dΦ, dC, z, dt, params; enable_nutrient_reaction=true)
     a = params.a
     Df = params.Df
@@ -187,6 +252,10 @@ function _nutrient_jacobian_bdf1(u, Φ, C, du, dΦ, dC, z, dt, params; enable_nu
 
     return jac
 end
+
+# -----------------------------------------------------------------------------
+# Monolithic residual and explicit Jacobian
+# -----------------------------------------------------------------------------
 
 """
     coupled_bioreactor_residual(x, x_prevs, y, dt, params, order=1, t=0.0)
@@ -354,6 +423,15 @@ function coupled_bioreactor_jacobian(x, x_prevs, dx, y, dt, params, order=1, t=0
     return jac_ns + jac_continuity + jac_phi + jac_C + jac_gamma
 end
 
+"""
+    build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
+
+Build the finite-element operator for one nonlinear solve at one time level.
+
+This is the switchyard between:
+- residual-only operators, which let Gridap differentiate internally, and
+- residual + explicit Jacobian operators, which use the hand-coded BDF1 Jacobian.
+"""
 function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     res(x, y) = ∫(coupled_bioreactor_residual(x, x_prevs, y, dt, params, order, t))dΩ
     if _get_param(params, :use_explicit_jacobian, false)
@@ -366,6 +444,10 @@ function build_bioreactor_operator(X, Y, dΩ, x_prevs, dt, params, order, t)
     return FEOperator(res, X, Y)
 end
 
+# -----------------------------------------------------------------------------
+# Linear solver builders
+# -----------------------------------------------------------------------------
+
 function _supported_transport_solver_kinds()
     return (:lu, :gmres)
 end
@@ -374,6 +456,12 @@ function _build_flow_linear_solver()
     return LUSolver()
 end
 
+"""
+    _build_transport_linear_solver(transport_kind; transport_verbose=false)
+
+Construct the current transport-block subsolver used inside the blocked linear
+solve path.
+"""
 function _build_transport_linear_solver(transport_kind::Symbol; transport_verbose::Bool=false)
     if transport_kind == :lu
         return LUSolver()
@@ -391,6 +479,12 @@ function _build_transport_linear_solver(transport_kind::Symbol; transport_verbos
     error("Unsupported transport solver kind: $(transport_kind). Supported kinds: $(kinds)")
 end
 
+"""
+    _build_block_linear_solver(; transport_kind=:lu, outer_kind=:fgmres, ...)
+
+Construct the current 2x2 blocked linear solver for the algebraic split
+`(u,p) | (Φ,C,Γ)`.
+"""
 function _build_block_linear_solver(;
     transport_kind::Symbol=:lu,
     outer_kind::Symbol=:fgmres,
@@ -430,6 +524,10 @@ function _build_block_linear_solver(;
         error("Unsupported blocked outer solver kind: $outer_kind")
     end
 end
+
+# -----------------------------------------------------------------------------
+# Debug and safety wrappers for blocked Krylov solves
+# -----------------------------------------------------------------------------
 
 function _nonlinear_result_summary(cache)
     hasproperty(cache, :result) || return nothing
@@ -540,6 +638,14 @@ function Algebra.solve!(x::AbstractVector, ns::DebugLinearSolverNS, b::AbstractV
     return x
 end
 
+"""
+    _zero_linear_iterate!(x)
+
+Recursively zero a linear-solver iterate, including blocked vectors.
+
+This helper exists because generic `fill!`-based initialization was insufficient
+for some blocked Krylov paths and led to poisoned initial iterates.
+"""
 function _zero_linear_iterate!(x)
     if x isa AbstractArray
         fill!(x, zero(eltype(x)))
@@ -587,6 +693,10 @@ function Algebra.solve!(x::AbstractVector, ns::ZeroedInitialGuessLinearSolverNS,
     return x
 end
 
+# -----------------------------------------------------------------------------
+# Time-stepping driver
+# -----------------------------------------------------------------------------
+
 """
     run_bioreactor_simulation(X, Y, dΩ, dt, params, nsteps; write_vtk_interval=1, output_prefix="results", collect_history=false, profile_steps=false)
 
@@ -599,6 +709,13 @@ Execute the time-stepping loop for the bioreactor simulation using a Newton solv
 - `params`: NamedTuple of physical and numerical parameters.
 - `nsteps`: Number of time steps.
 - `write_vtk_interval`: Frequency of VTK output.
+
+# Notes For Contributors
+- This driver owns time stepping and solver orchestration only.
+- The PDE itself lives in `coupled_bioreactor_residual`.
+- The explicit BDF1 linearization lives in `coupled_bioreactor_jacobian`.
+- The blocked linear-algebra path is selected here, but assembled in
+  `_build_block_linear_solver`.
 """
 function run_bioreactor_simulation(
     X,
