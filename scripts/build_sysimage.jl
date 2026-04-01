@@ -1,8 +1,9 @@
 using PackageCompiler
+using Libdl
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 const WORKLOAD = joinpath(ROOT, "scripts", "precompile_sysimage_workload.jl")
-const OUTPUT = joinpath(ROOT, "artifacts", "SBM_Bioreactor_sysimage.so")
+const OUTPUT = joinpath(ROOT, "artifacts", "SBM_Bioreactor_sysimage.$(Libdl.dlext)")
 
 mkpath(dirname(OUTPUT))
 
